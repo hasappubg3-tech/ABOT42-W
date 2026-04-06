@@ -211,12 +211,12 @@ def kb_manage(pid=None):
         if i > 0:
             if b.get('new_row', 1):
                 rows.append([InlineKeyboardButton(
-                    "〰️ سطر جديد  •  اضغط لدمجه مع السابق 🔗",
+                    "↕️ سطر منفصل  —  اضغط لوضعه بنفس سطر الزر أعلاه",
                     callback_data=f"row_toggle_{b['id']}"
                 )])
             else:
                 rows.append([InlineKeyboardButton(
-                    "🔗 نفس السطر  •  اضغط للفصل ✂️",
+                    "↔️ في نفس السطر  —  اضغط لنقله لسطر منفصل",
                     callback_data=f"row_toggle_{b['id']}"
                 )])
         rows.append([
