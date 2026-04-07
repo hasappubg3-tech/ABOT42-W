@@ -878,6 +878,34 @@ operations: قائمة عمليات الإضافة — يمكن أن تكون ع
 
 أرجع JSON صالح فقط بدون أي نص إضافي خارجه."""
 
+def _repair_json(raw: str) -> str:
+    """يحاول إغلاق JSON مقطوع بإضافة الأقواس والنصوص المفقودة."""
+    stack = []
+    in_string = False
+    escape_next = False
+    for ch in raw:
+        if escape_next:
+            escape_next = False
+            continue
+        if ch == '\\' and in_string:
+            escape_next = True
+            continue
+        if ch == '"':
+            in_string = not in_string
+            continue
+        if in_string:
+            continue
+        if ch == '{':
+            stack.append('}')
+        elif ch == '[':
+            stack.append(']')
+        elif ch in ('}', ']') and stack:
+            stack.pop()
+    # إذا كنا داخل نص مقطوع أغلقه أولاً
+    suffix = '"' if in_string else ''
+    suffix += ''.join(reversed(stack))
+    return raw + suffix
+
 def _parse_ai_response(raw: str):
     """يستخرج action وقائمة العمليات وقائمة الحذف من JSON.
     يُرجع: (action, operations, del_idx)
@@ -888,7 +916,13 @@ def _parse_ai_response(raw: str):
         raw = raw.split("```")[1]
         if raw.startswith("json"):
             raw = raw[4:]
-    data = json.loads(raw.strip())
+    raw = raw.strip()
+    # محاولة التحليل المباشر أولاً، وإصلاح JSON المقطوع عند الفشل
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        logging.warning(f"[AI] JSON malformed, attempting repair. Raw snippet: {raw[-200:]}")
+        data = json.loads(_repair_json(raw))
     action  = data.get("action", "add")
     del_idx = data.get("delete_indices", [])
 
@@ -913,12 +947,13 @@ async def _call_groq(client: httpx.AsyncClient, prompt: str):
         "model": GROQ_MODEL,
         "messages": [{"role": "user", "content": prompt}],
         "temperature": 0.3,
+        "max_tokens": 32768,
     }
     resp = await client.post(
         GROQ_URL,
         headers={"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"},
         json=payload,
-        timeout=30,
+        timeout=60,
     )
     resp.raise_for_status()
     return resp.json()["choices"][0]["message"]["content"]
