@@ -781,9 +781,13 @@ AI_SYSTEM_PROMPT = """أنت مساعد ذكي لبوت تلغرام يدير ق
 • رقم 0..N-1 → أضف بعد الزر ذي هذا الفهرس في القائمة الحالية.
 
 ══ قاعدة الأسطر المتعددة (مهم جداً) ══
-السياق يعطيك الأزرار مُرتبة في أسطر: "السطر 1: [0] ، [1]" و"السطر 2: [2]" إلخ.
-• إذا قال "أضف زر لكل سطر" → استخدم عملية (operation) لكل سطر:
-  - لكل سطر: insert_after_index = فهرس آخر زر في ذلك السطر، new_row=false.
+السياق يعطيك الأزرار مُجمَّعة في أسطر بهذا الشكل:
+  السطر 1: [0] "زر1" (menu)،  [1] "زر2" (menu)  ← آخر فهرس في هذا السطر: 1
+  السطر 2: [2] "زر3" (content)  ← آخر فهرس في هذا السطر: 2
+
+• إذا قال "أضف زر لكل سطر" أو "أضف زر في كل سطر" → استخدم عملية (operation) منفصلة لكل سطر:
+  - لكل سطر: insert_after_index = الرقم المكتوب بعد "آخر فهرس في هذا السطر:" ، new_row=false.
+  - مثال لسطرين: operations = [{insert_after_index:1, buttons:[{new_row:false,...}]}, {insert_after_index:2, buttons:[{new_row:false,...}]}]
 • إذا قال "أضف 2 زر للسطر الأول و3 للسطر الثاني" → عمليتان منفصلتان.
 • إذا أردت إضافة لسطر موجود (بجانب أزراره) → new_row=false للأزرار المضافة.
 • إذا أردت سطراً جديداً → new_row=true للزر الأول فيه.
@@ -851,10 +855,22 @@ async def process_ai_request(user_request: str, current_btns: list = None):
         return None, None, -1, [], "❌ لم يُعَيَّن أي مفتاح AI."
 
     if current_btns:
-        ctx_lines = [f"الأزرار الحالية الموجودة ({len(current_btns)} زر):"]
+        ctx_lines = [f"الأزرار الحالية الموجودة ({len(current_btns)} زر) مُجمَّعة حسب الأسطر:"]
+        current_row_btns = []
+        rows = []
         for i, b in enumerate(current_btns):
-            row_info = "بداية سطر جديد" if b.get("new_row", 1) else "بجانب السابق"
-            ctx_lines.append(f"  [{i}] \"{b['label']}\" ({b['type']}) - {row_info}")
+            if i == 0 or b.get("new_row", 1):
+                if current_row_btns:
+                    rows.append(current_row_btns)
+                current_row_btns = [(i, b)]
+            else:
+                current_row_btns.append((i, b))
+        if current_row_btns:
+            rows.append(current_row_btns)
+        for r_idx, row in enumerate(rows):
+            btns_str = "،  ".join(f"[{i}] \"{b['label']}\" ({b['type']})" for i, b in row)
+            last_idx = row[-1][0]
+            ctx_lines.append(f"  السطر {r_idx + 1}: {btns_str}  ← آخر فهرس في هذا السطر: {last_idx}")
         ctx_text = "\n".join(ctx_lines)
     else:
         ctx_text = "لا توجد أزرار حالية (القائمة فارغة)."
