@@ -37,7 +37,7 @@ TYPE_MAP = {
 
 BTN_SWAP = "🔀 تغيير"
 
-ADMIN_BTNS   = {BTN_MANAGE, BTN_ADMINS}
+ADMIN_BTNS   = {BTN_ADMINS}
 SPECIAL_BTNS = {BTN_BACK, BTN_ADD, BTN_MANAGE, BTN_ADMINS, BTN_CANCEL, BTN_SWAP} | set(TYPE_MAP.keys())
 
 # ── قاعدة البيانات ────────────────────────────────────────────────
@@ -310,7 +310,7 @@ def build_kb(uid, pid=None):
     if pid is not None:
         rows.append([KeyboardButton(BTN_BACK)])
     if is_admin(uid):
-        rows.append([KeyboardButton(BTN_MANAGE), KeyboardButton(BTN_ADMINS)])
+        rows.append([KeyboardButton(BTN_ADMINS)])
     return ReplyKeyboardMarkup(rows, resize_keyboard=True) if (rows or is_admin(uid)) else None
 
 def build_type_kb():
@@ -437,8 +437,12 @@ async def cmd_start(update: Update, ctx):
     kb = build_kb(uid)
     if not kb:
         await update.message.reply_text("👋 أهلاً! لا توجد أزرار متاحة حالياً.")
+        if is_admin(uid):
+            await set_panel(ctx, update.message.chat_id, "⚙️ *إدارة الأزرار*:", kb_manage(None))
         return
     await update.message.reply_text("👋 أهلاً!", reply_markup=kb)
+    if is_admin(uid):
+        await set_panel(ctx, update.message.chat_id, "⚙️ *إدارة الأزرار*:", kb_manage(None))
 
 async def cmd_myid(update: Update, ctx):
     await update.message.reply_text(f"🆔 `{update.effective_user.id}`", parse_mode="Markdown")
@@ -625,9 +629,14 @@ async def on_message(update: Update, ctx):
             b = get_btn(pid); new_pid = b["parent_id"] if b else None
             ctx.user_data["pid"] = new_pid
             await m.reply_text("🔙", reply_markup=build_kb(uid, new_pid))
+            if is_admin(uid):
+                label = "⚙️ *إدارة الأزرار*:" if new_pid is None else f"📂 *{get_btn(new_pid)['label'] if get_btn(new_pid) else ''}*"
+                await set_panel(ctx, chat_id, label, kb_manage(new_pid))
         else:
             ctx.user_data["pid"] = None
             await m.reply_text("🔙", reply_markup=build_kb(uid, None))
+            if is_admin(uid):
+                await set_panel(ctx, chat_id, "⚙️ *إدارة الأزرار*:", kb_manage(None))
         return
 
     # ── أزرار المشرف ──────────────────────────────────────────────
@@ -638,9 +647,6 @@ async def on_message(update: Update, ctx):
                 await m.reply_text("⚠️ يجب أن يكون هناك زران على الأقل للتبديل.")
             else:
                 await set_panel(ctx, chat_id, "🔀 *اختر الزر الأول:*", kb_swap_select(pid))
-            return
-        if text == BTN_MANAGE:
-            await set_panel(ctx, chat_id, "⚙️ *إدارة الأزرار*:", kb_manage(pid))
             return
         if text == BTN_ADMINS:
             await set_panel(ctx, chat_id, f"👥 *المشرفون* ({len(all_admins())}):", kb_admins_inline())
@@ -663,6 +669,8 @@ async def on_message(update: Update, ctx):
     if b["type"] == "menu":
         ctx.user_data["pid"] = b["id"]
         await m.reply_text(f"📂 {b['label']}", reply_markup=build_kb(uid, b["id"]))
+        if is_admin(uid):
+            await set_panel(ctx, chat_id, f"📂 *{b['label']}*", kb_manage(b["id"]))
 
     elif b["type"] == "content":
         if is_admin(uid):
