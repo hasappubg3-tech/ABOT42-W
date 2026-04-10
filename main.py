@@ -857,6 +857,7 @@ async def cb_manage(update: Update, ctx):
         all_added = []
         for line in lines:
             parts = [p.strip() for p in line.split("|") if p.strip()]
+            parts = list(reversed(parts))
             for col_idx, label in enumerate(parts):
                 if not label:
                     continue
