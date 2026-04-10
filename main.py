@@ -593,6 +593,52 @@ async def on_message(update: Update, ctx):
         await m.reply_text("✅", reply_markup=build_kb(uid, pid))
         return
 
+    # ── تحليل صورة بالذكاء الاصطناعي (للمشرفين فقط) ─────────────
+    if not state and m.photo and is_admin(uid):
+        import re
+        caption = (m.caption or "").strip()
+        if caption.startswith("."):
+            caption_body = caption[1:].strip()
+            if "قائمة" in caption_body:
+                btn_type = "menu"
+            elif "محتوى" in caption_body:
+                btn_type = "content"
+            else:
+                btn_type = None
+            if btn_type:
+                page_match = re.search(
+                    r'صورة\s*(\d+|واحد[ة]?|اثنت?ين|ثلاث[ة]?|اربع[ة]?|خمس[ة]?|ست[ة]?|سبع[ة]?|ثمان[ي]?[ة]?|تسع[ة]?|عشر[ة]?)',
+                    caption_body
+                )
+                page_words = {"واحد":1,"واحدة":1,"اثنين":2,"اثنتين":2,"ثلاثة":3,"ثلاث":3,
+                              "اربعة":4,"اربع":4,"خمسة":5,"خمس":5,"ستة":6,"ست":6,
+                              "سبعة":7,"سبع":7,"ثمانية":8,"ثماني":8,"تسعة":9,"تسع":9,"عشرة":10,"عشر":10}
+                wait_msg = await m.reply_text("⏳ جاري تحميل الصورة...")
+                try:
+                    img_data, mime = await _download_image_base64(ctx.bot, m.photo[-1].file_id)
+                except Exception as e:
+                    await wait_msg.edit_text(f"❌ فشل تحميل الصورة: {e}"); return
+                if page_match:
+                    pg_str = page_match.group(1)
+                    page_num = int(pg_str) if pg_str.isdigit() else page_words.get(pg_str, 1)
+                    batch = ctx.user_data.get("img_batch", [])
+                    batch = [b for b in batch if b["page"] != page_num]
+                    batch.append({"data": img_data, "mime": mime, "page": page_num, "type": btn_type})
+                    batch.sort(key=lambda x: x["page"])
+                    ctx.user_data["img_batch"] = batch
+                    await wait_msg.edit_text(
+                        f"✅ تم حفظ صورة {page_num} ({len(batch)} صورة مخزنة).\n"
+                        f"أرسل بقية الصور أو اكتب: *. تطبيق* لإضافة الأزرار.",
+                        parse_mode="Markdown"
+                    )
+                else:
+                    batch = ctx.user_data.pop("img_batch", [])
+                    batch.append({"data": img_data, "mime": mime, "page": len(batch)+1, "type": btn_type})
+                    batch.sort(key=lambda x: x["page"])
+                    await wait_msg.edit_text("⏳ جاري تحليل الصورة...")
+                    await _process_image_batch(wait_msg, m, ctx, uid, pid, batch, btn_type)
+                return
+
     # ── إشارة النقطة للذكاء الاصطناعي (للمشرفين فقط) ────────────
     if not state and text.startswith(".") and is_admin(uid):
         request_text = text[1:].strip()
@@ -602,6 +648,18 @@ async def on_message(update: Update, ctx):
         if not GROQ_API_KEY and not GEMINI_API_KEY:
             await m.reply_text("❌ لم يُعَيَّن أي مفتاح AI.")
             return
+        # ── تطبيق الصور المخزنة ───────────────────────────────────
+        if request_text in ("تطبيق", "تطبيق الصور"):
+            batch = ctx.user_data.pop("img_batch", [])
+            if not batch:
+                await m.reply_text("⚠️ لا توجد صور مخزنة. أرسل صوراً مرقّمة أولاً."); return
+            wait_msg = await m.reply_text(f"⏳ جاري تحليل {len(batch)} صورة...")
+            btn_type = batch[0].get("type", "menu")
+            await _process_image_batch(wait_msg, m, ctx, uid, pid, batch, btn_type); return
+        # ── إلغاء الصور المخزنة ───────────────────────────────────
+        if request_text in ("إلغاء الصور", "الغاء الصور", "حذف الصور"):
+            ctx.user_data.pop("img_batch", None)
+            await m.reply_text("✅ تم مسح الصور المخزنة."); return
         wait_msg = await m.reply_text("⏳ جاري التواصل مع الذكاء الاصطناعي...")
         current_btns = get_buttons(pid)
         action, operations, del_idx, error = await process_ai_request(request_text, current_btns)
@@ -1080,6 +1138,84 @@ def _parse_ai_response(raw: str):
             "buttons": data.get("buttons", []),
         }]
     return action, operations, del_idx
+
+async def _download_image_base64(bot, file_id: str):
+    """يحمّل الصورة من تيليغرام ويحوّلها إلى base64."""
+    import base64, io
+    tg_file = await bot.get_file(file_id)
+    buf = io.BytesIO()
+    await tg_file.download_to_memory(buf)
+    buf.seek(0)
+    return base64.b64encode(buf.read()).decode(), "image/jpeg"
+
+async def _call_gemini_vision(client: httpx.AsyncClient, prompt: str, images: list):
+    """يستدعي Gemini API مع الصور."""
+    parts = [{"text": prompt}]
+    for img in images:
+        parts.append({"inline_data": {"mime_type": img["mime"], "data": img["data"]}})
+    payload = {"contents": [{"parts": parts}]}
+    for model in GEMINI_MODELS:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+        resp = await client.post(url, params={"key": GEMINI_API_KEY}, json=payload, timeout=60)
+        if resp.status_code in (429, 503):
+            logging.warning(f"Gemini Vision {model} unavailable ({resp.status_code}), trying next...")
+            continue
+        resp.raise_for_status()
+        return resp.json()["candidates"][0]["content"]["parts"][0]["text"]
+    return None
+
+async def _process_image_batch(wait_msg, m, ctx, uid, pid, images: list, btn_type: str):
+    """يحلّل مجموعة صور ويضيف الأزرار المستخرجة منها بالترتيب."""
+    import re
+    if not GEMINI_API_KEY:
+        await wait_msg.edit_text("❌ تحليل الصور يتطلب مفتاح Gemini API. أضف GEMINI_API_KEY في الإعدادات.")
+        return
+    all_added = []
+    existing_labels = set()
+    last_bid = None
+    for img in images:
+        existing_str = "، ".join(f'"{l}"' for l in existing_labels) if existing_labels else "لا شيء"
+        prompt = (
+            "أنت مساعد لاستخراج أسماء أزرار واجهة تيليغرام من الصور.\n"
+            "انظر إلى الصورة واستخرج جميع أسماء الأزرار الظاهرة بنفس ترتيبها وتخطيطها.\n"
+            f"الأزرار المضافة مسبقاً (لا تكررها أبداً): {existing_str}\n\n"
+            "أرجع JSON فقط بهذا الشكل بدون أي نص إضافي:\n"
+            '{"buttons": [{"label": "اسم الزر", "new_row": true}, ...]}\n\n'
+            "- new_row: true إذا كان الزر في سطر جديد، false إذا في نفس سطر الزر السابق.\n"
+            "- لا تضف أزرار تنقل مثل: رجوع، الرئيسية، القائمة الرئيسية، ⬅️، 🏠.\n"
+            '- إذا لم توجد أزرار أو كلها مكررة: {"buttons": []}'
+        )
+        try:
+            async with httpx.AsyncClient() as client:
+                raw = await _call_gemini_vision(client, prompt, [img])
+            if not raw:
+                continue
+            json_match = re.search(r'\{[\s\S]*\}', raw)
+            if not json_match:
+                continue
+            data = json.loads(json_match.group())
+            buttons = data.get("buttons", [])
+        except Exception as e:
+            logging.warning(f"Image batch parse error: {e}")
+            continue
+        for btn_data in buttons:
+            label = (btn_data.get("label") or "").strip()
+            if not label or label in existing_labels:
+                continue
+            new_row = btn_data.get("new_row", True)
+            nr = 1 if new_row else 0
+            if last_bid is None:
+                last_bid = add_btn(pid, btn_type, label)
+            else:
+                last_bid = add_btn_after(last_bid, pid, btn_type, label, new_row=nr)
+            all_added.append(label)
+            existing_labels.add(label)
+    if all_added:
+        names = "\n".join(f"  • {l}" for l in all_added)
+        await wait_msg.edit_text(f"✅ تم إضافة {len(all_added)} زر:\n{names}", parse_mode="Markdown")
+        await m.reply_text("🔄", reply_markup=build_kb(uid, pid))
+    else:
+        await wait_msg.edit_text("⚠️ لم يُعثر على أزرار في الصور.")
 
 async def _call_groq(client: httpx.AsyncClient, prompt: str):
     """يستدعي Groq API."""
