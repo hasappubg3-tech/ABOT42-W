@@ -91,6 +91,10 @@ def init_db():
                 local_path TEXT,
                 ord INTEGER DEFAULT 0
             );
+            CREATE TABLE IF NOT EXISTS settings (
+                key TEXT PRIMARY KEY,
+                value TEXT
+            );
         """)
         try:
             c.execute("ALTER TABLE buttons ADD COLUMN new_row INTEGER DEFAULT 1")
@@ -99,6 +103,11 @@ def init_db():
             pass
         try:
             c.execute("ALTER TABLE content_items ADD COLUMN local_path TEXT")
+            c.commit()
+        except Exception:
+            pass
+        try:
+            c.execute("ALTER TABLE buttons ADD COLUMN no_caption INTEGER DEFAULT 0")
             c.commit()
         except Exception:
             pass
@@ -114,6 +123,28 @@ def del_admin(uid):
 
 def all_admins():
     return [dict(r) for r in db().execute("SELECT * FROM admins").fetchall()]
+
+def get_setting(key, default=None):
+    r = db().execute("SELECT value FROM settings WHERE key=?", (key,)).fetchone()
+    return r[0] if r else default
+
+def set_setting(key, value):
+    c = db()
+    c.execute("INSERT OR REPLACE INTO settings(key,value) VALUES(?,?)", (key, value))
+    c.commit(); c.close()
+
+def get_global_caption():
+    return get_setting("global_caption", "")
+
+def toggle_btn_no_caption(bid):
+    b = get_btn(bid)
+    if not b: return False
+    current = b.get("no_caption", 0) or 0
+    new_val = 0 if current else 1
+    c = db()
+    c.execute("UPDATE buttons SET no_caption=? WHERE id=?", (new_val, bid))
+    c.commit(); c.close()
+    return bool(new_val)
 
 def get_buttons(pid=None):
     if pid is None:
@@ -257,10 +288,12 @@ async def download_and_save(bot, file_id: str, file_type: str) -> str | None:
         logging.warning(f"فشل تحميل الملف محلياً: {e}")
         return None
 
-async def send_file_item(target, item, reply_markup=None):
+async def send_file_item(target, item, reply_markup=None, extra_caption=""):
     t = item["type"]
     fid = item.get("file_id")
     cap = item.get("content") or ""
+    if extra_caption:
+        cap = f"{cap}\n{extra_caption}" if cap else extra_caption
     lpath = item.get("local_path")
     iid = item.get("id")
     kwargs = {"caption": cap}
@@ -412,6 +445,11 @@ def kb_content_panel(bid):
     if items:
         rows.append([InlineKeyboardButton("👁 عرض المحتوى", callback_data=f"ci_view_{bid}")])
     rows.append([InlineKeyboardButton("➕ إضافة محتوى", callback_data=f"ci_add_{bid}")])
+    global_cap = get_global_caption()
+    if global_cap:
+        no_cap = (b.get("no_caption", 0) or 0) if b else 0
+        cap_label = "✅ تفعيل الكليشة" if no_cap else "🚫 إلغاء الكليشة"
+        rows.append([InlineKeyboardButton(cap_label, callback_data=f"ci_toggle_cap_{bid}")])
     rows.append([InlineKeyboardButton("✏️ تغيير الاسم", callback_data=f"el_{bid}")])
     rows.append([InlineKeyboardButton("🗑 حذف الزر",    callback_data=f"confirm_x_{bid}")])
     pid = b["parent_id"] if b else None
@@ -434,10 +472,16 @@ def kb_menu_quick(bid):
 def kb_content_quick(bid):
     """خيارات سريعة لزر محتوى عند الضغط من الكيبورد — بدون رجوع."""
     items = get_items(bid)
+    b = get_btn(bid)
     rows = []
     if items:
         rows.append([InlineKeyboardButton("👁 عرض المحتوى", callback_data=f"ci_view_{bid}")])
     rows.append([InlineKeyboardButton("➕ إضافة محتوى", callback_data=f"ci_add_{bid}")])
+    global_cap = get_global_caption()
+    if global_cap:
+        no_cap = (b.get("no_caption", 0) or 0) if b else 0
+        cap_label = "✅ تفعيل الكليشة" if no_cap else "🚫 إلغاء الكليشة"
+        rows.append([InlineKeyboardButton(cap_label, callback_data=f"ci_toggle_cap_{bid}")])
     rows.append([InlineKeyboardButton("✏️ تغيير الاسم", callback_data=f"el_{bid}")])
     rows.append([InlineKeyboardButton("🗑 حذف",          callback_data=f"confirm_x_{bid}")])
     return InlineKeyboardMarkup(rows)
@@ -462,11 +506,25 @@ def kb_admins_inline():
     return InlineKeyboardMarkup(rows)
 
 def kb_settings():
+    global_cap = get_global_caption()
+    cap_label = "✏️ تغيير الكليشة الثابتة" if global_cap else "📌 إضافة كليشة ثابتة"
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("👥 المشرفون",      callback_data="st_admins")],
         [InlineKeyboardButton("💾 النسخ الاحتياطي", callback_data="st_backup_menu")],
+        [InlineKeyboardButton(cap_label,          callback_data="st_caption")],
         [InlineKeyboardButton("📊 الإحصائيات",   callback_data="st_stats")],
     ])
+
+def kb_caption_settings():
+    global_cap = get_global_caption()
+    rows = []
+    if global_cap:
+        rows.append([InlineKeyboardButton("✏️ تغيير الكليشة", callback_data="st_caption_set")])
+        rows.append([InlineKeyboardButton("🗑 حذف الكليشة",   callback_data="st_caption_clear")])
+    else:
+        rows.append([InlineKeyboardButton("➕ كتابة الكليشة", callback_data="st_caption_set")])
+    rows.append([InlineKeyboardButton("🔙 رجوع", callback_data="st_back")])
+    return InlineKeyboardMarkup(rows)
 
 def kb_backup_menu():
     return InlineKeyboardMarkup([
@@ -519,8 +577,11 @@ async def send_items(m, bid):
     if not items:
         await m.reply_text("📭 لا يوجد محتوى بعد.")
         return
+    b = get_btn(bid)
+    no_cap = (b.get("no_caption", 0) or 0) if b else 0
+    extra_cap = get_global_caption() if not no_cap else ""
     for item in items:
-        await send_file_item(m, item)
+        await send_file_item(m, item, extra_caption=extra_cap)
 
 # ── /start ────────────────────────────────────────────────────────
 async def cmd_start(update: Update, ctx):
@@ -609,6 +670,18 @@ async def on_message(update: Update, ctx):
             except Exception:
                 pass
         await m.reply_text("✅ تم تحديث الوصف.", reply_markup=build_kb(uid, pid))
+        return
+
+    # ── انتظار نص الكليشة الثابتة ────────────────────────────────
+    if state == "wait_caption_text":
+        if not m.text or m.text in SPECIAL_BTNS:
+            await m.reply_text("⚠️ أرسل نصاً صحيحاً للكليشة."); return
+        set_setting("global_caption", m.text)
+        ctx.user_data.pop("state", None)
+        await set_panel(ctx, chat_id,
+                        f"✅ تم حفظ الكليشة الثابتة:\n\n{m.text}\n\n⚙️ *الاعدادات*",
+                        kb_settings())
+        await m.reply_text("✅ تم حفظ الكليشة.", reply_markup=build_kb(uid, pid))
         return
 
     # ── انتظار ملف الاستعادة ─────────────────────────────────────
@@ -970,6 +1043,44 @@ async def cb_manage(update: Update, ctx):
     if d == "st_back":
         await q.edit_message_text("⚙️ *الاعدادات*", parse_mode="Markdown",
                                   reply_markup=kb_settings())
+        return
+
+    if d == "st_caption":
+        global_cap = get_global_caption()
+        if global_cap:
+            cap_display = f"📌 *الكليشة الثابتة الحالية:*\n\n{global_cap}"
+        else:
+            cap_display = "📌 لا توجد كليشة ثابتة حالياً."
+        await q.edit_message_text(cap_display, parse_mode="Markdown",
+                                  reply_markup=kb_caption_settings())
+        return
+
+    if d == "st_caption_set":
+        ctx.user_data["state"] = "wait_caption_text"
+        await q.edit_message_text(
+            "✏️ أرسل نص الكليشة الثابتة التي تريد إضافتها لكل محتوى:",
+            reply_markup=kb_cancel_inline()
+        )
+        return
+
+    if d == "st_caption_clear":
+        set_setting("global_caption", "")
+        await q.edit_message_text("✅ تم حذف الكليشة الثابتة.", parse_mode="Markdown",
+                                  reply_markup=kb_settings())
+        return
+
+    if d.startswith("ci_toggle_cap_"):
+        bid = int(d[14:])
+        toggle_btn_no_caption(bid)
+        b = get_btn(bid)
+        items = get_items(bid)
+        no_cap = (b.get("no_caption", 0) or 0) if b else 0
+        status = "🚫 الكليشة مُلغاة لهذا الزر" if no_cap else "✅ الكليشة مفعّلة لهذا الزر"
+        await q.edit_message_text(
+            f"📄 *{b['label']}*\n_{len(items)} عنصر_\n\n{status}",
+            parse_mode="Markdown",
+            reply_markup=kb_content_panel(bid)
+        )
         return
 
     # ── حذف الكل ──────────────────────────────────────────────────
