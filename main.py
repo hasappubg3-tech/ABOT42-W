@@ -737,34 +737,20 @@ async def on_message(update: Update, ctx):
         if not lines:
             await m.reply_text("⚠️ لم يتم العثور على أزرار.")
             return
-        btn_type = "menu"
-        existing_btns = get_buttons(pid)
-        last_bid = existing_btns[-1]["id"] if existing_btns else None
-        first_add = (last_bid is None)
-        all_added = []
-        for line in lines:
-            parts = [p.strip() for p in line.split("|") if p.strip()]
-            for col_idx, label in enumerate(parts):
-                if not label:
-                    continue
-                is_new_row = (col_idx == 0)
-                nr = 1 if is_new_row else 0
-                if first_add:
-                    last_bid = add_btn(pid, btn_type, label)
-                    first_add = False
-                else:
-                    last_bid = add_btn_after(last_bid, pid, btn_type, label, new_row=nr)
-                all_added.append((label, is_new_row))
-        if all_added:
-            names = "\n".join(
-                f"  {'🔹' if nr else '  ▪️'} {lbl}" for lbl, nr in all_added
-            )
-            await m.reply_text(
-                f"✅ تم إضافة {len(all_added)} زر:\n{names}",
-                reply_markup=build_kb(uid, pid)
-            )
-        else:
-            await m.reply_text("⚠️ لم يتم إضافة أي زر.", reply_markup=build_kb(uid, pid))
+        ctx.user_data["quick_add_lines"] = lines
+        ctx.user_data["quick_add_pid"] = pid
+        markup = InlineKeyboardMarkup([[
+            InlineKeyboardButton("📂 قائمة", callback_data="qa_menu"),
+            InlineKeyboardButton("📄 محتوى", callback_data="qa_content"),
+        ]])
+        preview = "\n".join(
+            " | ".join(p.strip() for p in l.split("|") if p.strip()) for l in lines
+        )
+        await m.reply_text(
+            f"📋 *الأزرار المراد إضافتها:*\n`{preview}`\n\nما نوع الأزرار؟",
+            parse_mode="Markdown",
+            reply_markup=markup
+        )
         return
 
     # ── إلغاء ─────────────────────────────────────────────────────
@@ -856,6 +842,45 @@ async def cb_manage(update: Update, ctx):
     if d == "cancel":
         ctx.user_data.pop("state", None)
         await q.edit_message_text("✅ تم الإلغاء."); return
+
+    # ── إضافة سريعة (اضف) ─────────────────────────────────────────
+    if d in ("qa_menu", "qa_content"):
+        btn_type = "menu" if d == "qa_menu" else "content"
+        lines = ctx.user_data.pop("quick_add_lines", [])
+        qa_pid = ctx.user_data.pop("quick_add_pid", pid)
+        if not lines:
+            await q.edit_message_text("⚠️ انتهت صلاحية الكليشة، أعد إرسالها.")
+            return
+        existing_btns = get_buttons(qa_pid)
+        last_bid = existing_btns[-1]["id"] if existing_btns else None
+        first_add = (last_bid is None)
+        all_added = []
+        for line in lines:
+            parts = [p.strip() for p in line.split("|") if p.strip()]
+            for col_idx, label in enumerate(parts):
+                if not label:
+                    continue
+                is_new_row = (col_idx == 0)
+                nr = 1 if is_new_row else 0
+                if first_add:
+                    last_bid = add_btn(qa_pid, btn_type, label)
+                    first_add = False
+                else:
+                    last_bid = add_btn_after(last_bid, qa_pid, btn_type, label, new_row=nr)
+                all_added.append((label, is_new_row))
+        if all_added:
+            names = "\n".join(
+                f"  {'🔹' if nr else '  ▪️'} {lbl}" for lbl, nr in all_added
+            )
+            type_label = "📂 قائمة" if btn_type == "menu" else "📄 محتوى"
+            await q.edit_message_text(
+                f"✅ تم إضافة {len(all_added)} زر ({type_label}):\n{names}",
+                parse_mode="Markdown"
+            )
+            await q.message.reply_text("🔄", reply_markup=build_kb(uid, qa_pid))
+        else:
+            await q.edit_message_text("⚠️ لم يتم إضافة أي زر.")
+        return
 
     # ── تنقل في لوحة الإدارة العامة ──────────────────────────────
     if d == "m_r":
