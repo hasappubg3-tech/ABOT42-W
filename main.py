@@ -3,6 +3,8 @@ import os
 import sqlite3
 import json
 import httpx
+import zipfile
+import datetime
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters
 
@@ -775,6 +777,12 @@ async def on_message(update: Update, ctx):
                 await set_panel(ctx, chat_id, "⚙️ *إدارة الأزرار*:", kb_manage(None))
         return
 
+    # ── نسخة احتياطية يدوية ───────────────────────────────────────
+    if not state and text == "نسخة احتياطية" and is_admin(uid):
+        await m.reply_text("⏳ جاري إنشاء النسخة الاحتياطية...")
+        await send_backup(ctx.bot, uid)
+        return
+
     # ── حذف الكل ──────────────────────────────────────────────────
     if not state and text == "حذف الكل" and is_admin(uid):
         btns = get_buttons(pid)
@@ -1402,11 +1410,51 @@ async def process_ai_request(user_request: str, current_btns: list = None):
             logging.warning(f"Gemini exception: {e}")
     return None, [], [], "⚠️ تعذّر الاتصال بـ Gemini. تحقق من المفاتيح وحاول مرة أخرى."
 
+# ── النسخ الاحتياطي ───────────────────────────────────────────────
+async def send_backup(bot, chat_id: int):
+    """يُنشئ ملف ZIP يحتوي قاعدة البيانات والملفات ويرسله للمستخدم."""
+    now = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M")
+    zip_path = f"/tmp/backup_{now}.zip"
+    try:
+        with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+            if os.path.exists(DB):
+                zf.write(DB, arcname="data.db")
+            if os.path.isdir(MEDIA_DIR):
+                for fname in os.listdir(MEDIA_DIR):
+                    fpath = os.path.join(MEDIA_DIR, fname)
+                    if os.path.isfile(fpath):
+                        zf.write(fpath, arcname=os.path.join("media", fname))
+        with open(zip_path, "rb") as f:
+            await bot.send_document(
+                chat_id=chat_id,
+                document=f,
+                filename=f"backup_{now}.zip",
+                caption=f"💾 نسخة احتياطية — {now}"
+            )
+    except Exception as e:
+        logging.warning(f"فشل إرسال النسخة الاحتياطية: {e}")
+        try:
+            await bot.send_message(chat_id=chat_id, text=f"❌ فشل إرسال النسخة الاحتياطية:\n{e}")
+        except Exception:
+            pass
+    finally:
+        if os.path.exists(zip_path):
+            os.remove(zip_path)
+
+async def _auto_backup_job(ctx):
+    """مهمة الجدولة التلقائية — ترسل النسخة لـ SUPER_ADMIN_ID."""
+    sid = os.environ.get("SUPER_ADMIN_ID", "").strip()
+    if sid.isdigit():
+        await send_backup(ctx.bot, int(sid))
+
 # ── إعداد البوت ──────────────────────────────────────────────────
 async def post_init(app):
     sid = os.environ.get("SUPER_ADMIN_ID", "").strip()
     if sid.isdigit() and not is_admin(int(sid)):
         add_admin(int(sid)); logging.info(f"Super admin {sid} added.")
+    if sid.isdigit():
+        app.job_queue.run_repeating(_auto_backup_job, interval=86400, first=3600, name="auto_backup")
+        logging.info("تم جدولة النسخ الاحتياطي التلقائي كل 24 ساعة.")
 
 def main():
     if not BOT_TOKEN:
