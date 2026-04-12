@@ -267,8 +267,15 @@ async def send_quiz_question(m, bid, question, uid=None, random_q=0):
         next_question = get_next_ordered_quiz_question(bid, question["id"])
     if next_question:
         await m.reply_text(
-            "🔥 هل مستعد للسؤال التالي؟\n\nركز زين، التحدي مستمر والحماس بعده بأوله!",
+            "🔥 هل مستعد للسؤال التالي؟",
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("➡️ السؤال التالي", callback_data=f"quiz_next_{bid}_{question['id']}")]
+            ])
+        )
+    else:
+        await m.reply_text(
+            "🎉 خلصت أسئلة الاختبار.\n\nأحسنت، تقدر تعيد الاختبار من البداية إذا تحب.",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🔁 إعادة الاختبار", callback_data=f"quiz_start_{bid}")]
             ])
         )
