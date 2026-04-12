@@ -5,8 +5,8 @@ import json
 import httpx
 import zipfile
 import datetime
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton
-from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton, LabeledPrice
+from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, PreCheckoutQueryHandler, filters
 
 logging.basicConfig(format="%(asctime)s - %(levelname)s - %(message)s", level=logging.INFO)
 
@@ -635,8 +635,56 @@ def pomodoro_settings_text(uid: int) -> str:
         f"الحالة: {status}"
     )
 
+def parse_stars_amount(text: str, max_stars: int = 10000):
+    if not text:
+        return None
+    import re
+    match = re.search(r"\d+", text.strip())
+    if not match:
+        return None
+    try:
+        amount = int(match.group(0))
+    except Exception:
+        return None
+    if amount < 1 or amount > max_stars:
+        return None
+    return amount
+
+def donation_text() -> str:
+    return (
+        "💝 *دعم البوت بالنجوم*\n\n"
+        "إذا استفدت من المحتوى وتحب تدعم استمرار البوت، تقدر تتبرع بأي عدد من نجوم تلغرام.\n\n"
+        "اختر مبلغاً جاهزاً أو اكتب عدد النجوم الذي تريده."
+    )
+
+def kb_donation_stars():
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("10 ⭐", callback_data="don_amount_10"),
+            InlineKeyboardButton("25 ⭐", callback_data="don_amount_25"),
+            InlineKeyboardButton("50 ⭐", callback_data="don_amount_50"),
+        ],
+        [
+            InlineKeyboardButton("100 ⭐", callback_data="don_amount_100"),
+            InlineKeyboardButton("250 ⭐", callback_data="don_amount_250"),
+        ],
+        [InlineKeyboardButton("✏️ أكتب عدد النجوم", callback_data="don_custom")],
+        [InlineKeyboardButton("❌ إغلاق", callback_data="don_close")],
+    ])
+
+async def send_stars_invoice(bot, chat_id: int, stars: int):
+    await bot.send_invoice(
+        chat_id=chat_id,
+        title="دعم البوت بالنجوم",
+        description=f"تبرع اختياري لدعم استمرار البوت بقيمة {stars} نجمة.",
+        payload=f"stars_donation:{stars}",
+        provider_token="",
+        currency="XTR",
+        prices=[LabeledPrice(label=f"{stars} نجمة", amount=stars)],
+    )
+
 def _setup_pomodoro_feature():
-    """يضبط زر 421 كحاوية وينشئ زر البومودورو داخله إن لم يكن موجوداً."""
+    """يضبط زر 421 كحاوية وينشئ الأزرار الخاصة داخله إن لم تكن موجودة."""
     c = db()
     b421 = c.execute("SELECT * FROM buttons WHERE id=421").fetchone()
     if not b421:
@@ -652,6 +700,17 @@ def _setup_pomodoro_feature():
         c.execute(
             "INSERT INTO buttons(parent_id,type,label,ord,new_row,special_action) VALUES(?,?,?,?,?,?)",
             (421, "special", "🍅 مؤقت الدراسة", len(ids)+1, 1, "pomodoro")
+        )
+    existing_donate = c.execute(
+        "SELECT id FROM buttons WHERE parent_id=421 AND special_action='donate_stars' LIMIT 1"
+    ).fetchone()
+    if not existing_donate:
+        ids = [r[0] for r in c.execute(
+            "SELECT id FROM buttons WHERE parent_id=421 ORDER BY ord,id"
+        ).fetchall()]
+        c.execute(
+            "INSERT INTO buttons(parent_id,type,label,ord,new_row,special_action) VALUES(?,?,?,?,?,?)",
+            (421, "special", "💝 ادعمنا بالنجوم", len(ids)+1, 1, "donate_stars")
         )
     c.commit(); c.close()
 
@@ -1678,6 +1737,19 @@ async def on_message(update: Update, ctx):
         )
         return
 
+    if state == "wait_donate_stars":
+        stars = parse_stars_amount(text)
+        if stars is None:
+            await m.reply_text("⚠️ أرسل عدد النجوم كرقم بين 1 و 10000."); return
+        ctx.user_data.pop("state", None)
+        await m.reply_text(f"✅ تم اختيار *{stars} نجمة*، سأرسل لك فاتورة الدفع الآن.", parse_mode="Markdown")
+        try:
+            await send_stars_invoice(ctx.bot, chat_id, stars)
+        except Exception as e:
+            logging.warning(f"send_stars_invoice custom failed: {e}")
+            await m.reply_text("❌ تعذر إرسال فاتورة النجوم حالياً. حاول مرة أخرى لاحقاً.")
+        return
+
     # ── انتظار اسم جديد للتعديل ───────────────────────────────────
     if state == "wait_edit_label":
         if not text or text in SPECIAL_BTNS:
@@ -1982,6 +2054,16 @@ async def on_message(update: Update, ctx):
                 await set_panel(ctx, chat_id,
                                 f"⭐ *{b['label']}* (#{b['id']})\n_زر بومودورو_",
                                 kb_special_quick(b["id"]))
+        elif action == "donate_stars":
+            await m.reply_text(
+                donation_text(),
+                parse_mode="Markdown",
+                reply_markup=kb_donation_stars()
+            )
+            if is_admin(uid):
+                await set_panel(ctx, chat_id,
+                                f"⭐ *{b['label']}* (#{b['id']})\n_زر تبرع بالنجوم_",
+                                kb_special_quick(b["id"]))
         else:
             if is_admin(uid):
                 await set_panel(ctx, chat_id,
@@ -2067,6 +2149,45 @@ async def cb_manage(update: Update, ctx):
                     )
                 except Exception:
                     pass
+        return
+
+    # ── معالجات التبرع بالنجوم (لجميع المستخدمين) ───────────────────────
+    if d.startswith("don_"):
+        await q.answer()
+        chat_id = q.message.chat_id
+
+        if d.startswith("don_amount_"):
+            stars = int(d[len("don_amount_"):])
+            try:
+                await send_stars_invoice(ctx.bot, chat_id, stars)
+            except Exception as e:
+                logging.warning(f"send_stars_invoice preset failed: {e}")
+                await ctx.bot.send_message(chat_id=chat_id, text="❌ تعذر إرسال فاتورة النجوم حالياً. حاول مرة أخرى لاحقاً.")
+            return
+
+        if d == "don_custom":
+            ctx.user_data["state"] = "wait_donate_stars"
+            await q.edit_message_text(
+                "✏️ *تخصيص التبرع*\n\nأرسل عدد النجوم الذي تريد التبرع به، مثال: `75`",
+                parse_mode="Markdown",
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton("❌ إلغاء", callback_data="don_cancel")
+                ]])
+            )
+            return
+
+        if d == "don_cancel":
+            ctx.user_data.pop("state", None)
+            await q.edit_message_text(donation_text(), parse_mode="Markdown", reply_markup=kb_donation_stars())
+            return
+
+        if d == "don_close":
+            try:
+                await q.message.delete()
+            except Exception:
+                await q.edit_message_text("✅")
+            return
+
         return
 
     # ── معالجات البومودورو (لجميع المستخدمين) ────────────────────────
@@ -3229,6 +3350,24 @@ async def _auto_backup_job(ctx):
     if sid.isdigit():
         await send_backup(ctx.bot, int(sid))
 
+async def precheckout_callback(update: Update, ctx):
+    query = update.pre_checkout_query
+    if query.invoice_payload.startswith("stars_donation:"):
+        await query.answer(ok=True)
+    else:
+        await query.answer(ok=False, error_message="فاتورة غير معروفة.")
+
+async def successful_payment_callback(update: Update, ctx):
+    payment = update.message.successful_payment
+    stars = payment.total_amount if payment and payment.currency == "XTR" else 0
+    if stars:
+        await update.message.reply_text(
+            f"💝 شكراً جزيلاً على دعمك بـ *{stars} نجمة*!\n\nدعمك يساعدنا نستمر ونطور المحتوى.",
+            parse_mode="Markdown"
+        )
+    else:
+        await update.message.reply_text("💝 شكراً جزيلاً على دعمك!")
+
 # ── مهام البومودورو ───────────────────────────────────────────────
 async def _pom_study_end(ctx):
     """يُرسل تنبيه نهاية وقت الدراسة."""
@@ -3295,6 +3434,8 @@ def main():
 
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CommandHandler("myid", cmd_myid))
+    app.add_handler(PreCheckoutQueryHandler(precheckout_callback))
+    app.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT, successful_payment_callback))
     app.add_handler(CallbackQueryHandler(cb_manage))
     app.add_handler(MessageHandler(media_filter, on_message))
 
