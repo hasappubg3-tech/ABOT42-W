@@ -24,6 +24,8 @@ async def on_message(update: Update, ctx):
     chat_id = m.chat_id
 
     track_message(uid)
+    if is_admin(uid) and update.effective_user.username:
+        update_admin_username(uid, update.effective_user.username)
 
     if state == "wait_file_request":
         bid = ctx.user_data.pop("file_request_bid", None)
@@ -62,14 +64,31 @@ async def on_message(update: Update, ctx):
 
     if state == "wait_file_admin_id":
         if not m.text:
-            await m.reply_text("⚠️ أرسل آيدي مشرف الملفات كرقم."); return
-        try:
-            target_id = int(m.text.strip())
-        except Exception:
-            await m.reply_text("⚠️ الآيدي يجب أن يكون رقماً فقط."); return
+            await m.reply_text("⚠️ أرسل آيدي مشرف الملفات أو اليوزر، مثال: `123456` أو `@username`.", parse_mode="Markdown"); return
+        raw_admin = m.text.strip()
+        username = None
+        if raw_admin.lstrip("-").isdigit():
+            target_id = int(raw_admin)
+        else:
+            username = raw_admin.lstrip("@")
+            known_admin = get_admin_by_username(username)
+            if known_admin:
+                target_id = known_admin["id"]
+                username = known_admin.get("username") or username
+            else:
+                try:
+                    chat = await ctx.bot.get_chat(f"@{username}")
+                    target_id = chat.id
+                    username = getattr(chat, "username", None) or username
+                except Exception:
+                    await m.reply_text(
+                        "⚠️ ما قدرت أتعرف على هذا اليوزر.\n\n"
+                        "حتى أضيفه باليوزر لازم يكون مشرف عام ومحدّث يوزره داخل البوت، أو أرسل الآيدي الرقمي مباشرة."
+                    )
+                    return
         bid = ctx.user_data.pop("file_admin_bid", None)
         ctx.user_data.pop("state", None)
-        add_file_request_admin(target_id)
+        add_file_request_admin(target_id, username)
         await set_panel(ctx, chat_id, "👥 *مشرفين الملفات*", kb_file_request_admins(bid))
         await m.reply_text("✅ تم إضافة مشرف الملفات.", reply_markup=build_kb(uid, pid))
         return
@@ -663,7 +682,7 @@ async def on_message(update: Update, ctx):
                 ctx.user_data.pop("add_after", None)
                 await set_panel(ctx, chat_id, "اختر نوع الزر الجديد:", kb_add_type())
             return
-        if text == BTN_SWAP:
+        if text in (BTN_SWAP, "تغير", "تغيير"):
             btns = get_buttons(pid)
             if len(btns) < 2:
                 await m.reply_text("⚠️ يجب أن يكون هناك زران على الأقل للتبديل.")

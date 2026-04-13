@@ -202,6 +202,23 @@ def is_admin(uid):
 def add_admin(uid, name=None):
     c = db(); c.execute("INSERT OR IGNORE INTO admins VALUES(?,?)", (uid, name)); c.commit(); c.close()
 
+def update_admin_username(uid, username=None):
+    if not username:
+        return
+    c = db()
+    c.execute("UPDATE admins SET username=? WHERE id=?", (username.lstrip("@"), uid))
+    c.commit(); c.close()
+
+def get_admin_by_username(username):
+    username = (username or "").strip().lstrip("@").lower()
+    if not username:
+        return None
+    r = db().execute(
+        "SELECT * FROM admins WHERE lower(COALESCE(username,''))=?",
+        (username,)
+    ).fetchone()
+    return dict(r) if r else None
+
 def del_admin(uid):
     c = db(); c.execute("DELETE FROM admins WHERE id=?", (uid,)); c.commit(); c.close()
 

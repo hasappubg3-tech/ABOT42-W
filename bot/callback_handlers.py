@@ -447,7 +447,7 @@ async def cb_manage(update: Update, ctx):
         ctx.user_data["state"] = "wait_file_admin_id"
         ctx.user_data["file_admin_bid"] = bid
         await q.edit_message_text(
-            "➕ *إضافة مشرف ملفات*\n\nأرسل آيدي الشخص الذي تريد أن تصله طلبات الملفات.",
+            "➕ *إضافة مشرف ملفات*\n\nأرسل آيدي الشخص أو يوزره، مثال:\n`123456789`\n`@username`",
             parse_mode="Markdown",
             reply_markup=kb_cancel_inline()
         )
