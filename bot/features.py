@@ -472,9 +472,7 @@ def top_users_text() -> str:
         medal = medals.get(i, f"{i}\\.")
         username = row["username"]
         first_name = row["first_name"]
-        if username:
-            display = f"@{_safe(username)}"
-        elif first_name:
+        if first_name:
             display = _safe(first_name)
         else:
             display = f"مستخدم {i}"
