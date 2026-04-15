@@ -3,7 +3,6 @@ import importlib
 MODULE_NAMES = [
     "data_access",
     "features",
-    "yt_feature",
     "keyboards",
     "content_delivery",
     "message_handlers",

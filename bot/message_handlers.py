@@ -105,49 +105,6 @@ async def on_message(update: Update, ctx):
                             kb_special_quick(bid))
         return
 
-    if state == "wait_yt_search":
-        if is_bot_button_text(text, pid):
-            ctx.user_data.pop("state", None)
-            state = None
-        else:
-            if not text:
-                await m.reply_text("⚠️ أرسل نصاً للبحث.", reply_markup=kb_yt_cancel()); return
-            ctx.user_data.pop("state", None)
-            searching_msg = await m.reply_text("🔍 *جاري البحث…*", parse_mode="Markdown")
-            entries = await yt_search(text, limit=10)
-            try:
-                await searching_msg.delete()
-            except Exception:
-                pass
-            if not entries:
-                await m.reply_text(
-                    "❌ لم يتم العثور على نتائج. حاول بكلمات مختلفة.",
-                    reply_markup=kb_yt_cancel()
-                )
-                return
-            ctx.user_data["yt_entries"] = entries
-            results_text = f"🎬 *نتائج البحث عن:* _{text}_\n\nاختر الفيديو:"
-            await m.reply_text(
-                results_text,
-                parse_mode="Markdown",
-                reply_markup=kb_yt_results(entries)
-            )
-            return
-
-    if state == "wait_yt_prompt":
-        if not m.text or m.text in SPECIAL_BTNS:
-            await m.reply_text("⚠️ أرسل نصاً صحيحاً."); return
-        set_setting("yt_search_prompt", m.text)
-        bid = ctx.user_data.pop("yt_prompt_bid", None)
-        ctx.user_data.pop("state", None)
-        b = get_btn(bid) if bid else None
-        await m.reply_text("✅ تم حفظ نص الزر.", reply_markup=build_kb(uid, pid))
-        if bid and b:
-            await set_panel(ctx, chat_id,
-                            f"⭐ *{b['label']}* (#{bid})\n_زر يوتيوب_\n\n✅ النص المحفوظ:\n{m.text}",
-                            kb_special_quick(bid))
-        return
-
     if state == "wait_file_request":
         if is_bot_button_text(text, pid):
             ctx.user_data.pop("file_request_bid", None)
@@ -1030,19 +987,6 @@ async def on_message(update: Update, ctx):
                     "سيصل ملفك مباشرة للمشرفين 👇",
                     parse_mode="Markdown",
                     reply_markup=kb_file_upload_cancel()
-                )
-        elif action == "yt_search":
-            if is_admin(uid):
-                await set_panel(ctx, chat_id,
-                                f"⭐ *{b['label']}* (#{b['id']})\n_زر يوتيوب_",
-                                kb_special_quick(b["id"]))
-            else:
-                ctx.user_data["state"] = "wait_yt_search"
-                prompt = get_setting("yt_search_prompt", default_yt_prompt())
-                await m.reply_text(
-                    prompt,
-                    parse_mode="Markdown",
-                    reply_markup=kb_yt_cancel()
                 )
         else:
             if is_admin(uid):

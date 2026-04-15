@@ -259,8 +259,6 @@ def kb_special_quick(bid):
         rows.insert(0, [InlineKeyboardButton("👥 مشرفين الملفات", callback_data=f"fr_admins_{bid}")])
     if b and b.get("special_action") == "file_upload":
         rows.insert(1, [InlineKeyboardButton("✏️ تعديل رسالة الشكر", callback_data=f"fu_thanks_set_{bid}")])
-    if b and b.get("special_action") == "yt_search":
-        rows.insert(0, [InlineKeyboardButton("✏️ تعديل نص الزر", callback_data=f"yt_prompt_set_{bid}")])
     return InlineKeyboardMarkup(rows)
 
 def kb_file_request_admins(bid):
@@ -287,34 +285,6 @@ def kb_file_upload_cancel():
     return InlineKeyboardMarkup([[
         InlineKeyboardButton("❌ إلغاء", callback_data="fu_cancel")
     ]])
-
-def kb_yt_cancel():
-    return InlineKeyboardMarkup([[
-        InlineKeyboardButton("❌ إلغاء", callback_data="yt_cancel")
-    ]])
-
-def kb_yt_results(entries: list):
-    rows = []
-    for i, e in enumerate(entries[:10]):
-        title = e.get("title", "؟")
-        if len(title) > 50:
-            title = title[:47] + "…"
-        dur = e.get("duration")
-        dur_str = f" [{format_duration(dur)}]" if dur else ""
-        vid_id = e.get("id", "")
-        rows.append([InlineKeyboardButton(f"{i+1}. {title}{dur_str}", callback_data=f"yt_res_{vid_id}")])
-    rows.append([InlineKeyboardButton("❌ إلغاء", callback_data="yt_cancel")])
-    return InlineKeyboardMarkup(rows)
-
-def kb_yt_choice(vid_id: str):
-    return InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton("🎬 مشاهدة فيديو", callback_data=f"yt_video_{vid_id}"),
-            InlineKeyboardButton("🎵 استماع صوت",   callback_data=f"yt_audio_{vid_id}"),
-        ],
-        [InlineKeyboardButton("🔙 رجوع للنتائج", callback_data="yt_back_results")],
-        [InlineKeyboardButton("❌ إلغاء",          callback_data="yt_cancel")],
-    ])
 
 def kb_special_container_quick(bid):
     """خيارات سريعة لزر مميز حاوية عند ضغط الأدمن عليه."""
