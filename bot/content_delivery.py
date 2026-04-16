@@ -447,8 +447,10 @@ def start_exam_session(ctx, uid, bid):
         "q_ids": q_ids,
         "total": len(q_ids),
         "finished": False,
+        "graded_qids": [],
     }
     ctx.user_data[_exam_session_key(bid)] = session
+    reset_exam_progress(uid, bid, len(q_ids))
     return session
 
 def get_exam_session(ctx, bid):
@@ -466,19 +468,43 @@ async def send_exam_ready(m, bid):
         ])
     )
 
-async def _send_exam_item(target, item_type, item_text, item_file_id, reply_markup=None, header=""):
+async def _send_exam_item(target, item_type, item_text, item_file_id, reply_markup=None, header="", channel_msg_id=None, bot=None):
     kwargs = {}
     if reply_markup:
         kwargs["reply_markup"] = reply_markup
     full_text = header + (item_text or "")
     if item_type == "text":
         await target.reply_text(full_text or "—", parse_mode="Markdown", **kwargs)
+    elif channel_msg_id and get_storage_channel_id() and bot:
+        try:
+            await bot.copy_message(
+                chat_id=target.chat_id,
+                from_chat_id=get_storage_channel_id(),
+                message_id=channel_msg_id,
+                caption=full_text or None,
+                reply_markup=reply_markup,
+                parse_mode="Markdown",
+            )
+        except Exception as e:
+            logging.warning(f"فشل إرسال عنصر الامتحان من القناة: {e}")
+            if item_type == "photo":
+                await target.reply_photo(item_file_id, caption=full_text or None, parse_mode="Markdown", **kwargs)
+            elif item_type == "file":
+                await target.reply_document(item_file_id, caption=full_text or None, parse_mode="Markdown", **kwargs)
+            elif item_type == "video":
+                await target.reply_video(item_file_id, caption=full_text or None, parse_mode="Markdown", **kwargs)
+            elif item_type == "audio":
+                await target.reply_audio(item_file_id, caption=full_text or None, parse_mode="Markdown", **kwargs)
     elif item_type == "photo":
         await target.reply_photo(item_file_id, caption=full_text or None, parse_mode="Markdown", **kwargs)
     elif item_type == "file":
         await target.reply_document(item_file_id, caption=full_text or None, parse_mode="Markdown", **kwargs)
+    elif item_type == "video":
+        await target.reply_video(item_file_id, caption=full_text or None, parse_mode="Markdown", **kwargs)
+    elif item_type == "audio":
+        await target.reply_audio(item_file_id, caption=full_text or None, parse_mode="Markdown", **kwargs)
 
-async def send_exam_question_to_user(target, bid, qid, current_num, total):
+async def send_exam_question_to_user(target, bid, qid, current_num, total, bot=None):
     q = get_exam_question(qid)
     if not q:
         await target.reply_text("⚠️ السؤال غير موجود.")
@@ -493,23 +519,23 @@ async def send_exam_question_to_user(target, bid, qid, current_num, total):
         q.get("q_file_id"),
         reply_markup=reveal_markup,
         header=f"📝 *السؤال {current_num}/{total}*\n\n",
+        channel_msg_id=q.get("q_channel_msg_id"),
+        bot=bot,
     )
 
-async def send_exam_answer_to_user(target, bid, qid, current_idx, total):
+async def send_exam_answer_to_user(target, bid, qid, current_idx, total, bot=None):
     q = get_exam_question(qid)
     if not q:
         await target.reply_text("⚠️ الجواب غير موجود.")
         return
     is_last = (current_idx + 1 >= total)
-    if is_last:
-        next_markup = InlineKeyboardMarkup([
-            [InlineKeyboardButton("🏁 إنهاء الاختبار", callback_data=f"ex_finish_{bid}")]
-        ])
-    else:
-        next_markup = InlineKeyboardMarkup([
-            [InlineKeyboardButton("➡️ السؤال التالي", callback_data=f"ex_next_{bid}_{qid}")],
-            [InlineKeyboardButton("🏁 إنهاء الاختبار", callback_data=f"ex_finish_{bid}")],
-        ])
+    next_markup = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("✅ عرفته", callback_data=f"ex_mark_{bid}_{qid}_1"),
+            InlineKeyboardButton("❌ ما عرفته", callback_data=f"ex_mark_{bid}_{qid}_0"),
+        ],
+        [InlineKeyboardButton("🏁 إنهاء الاختبار", callback_data=f"ex_finish_{bid}")]
+    ])
     a_type = q.get("a_type", "text")
     a_text = q.get("a_text")
     a_file_id = q.get("a_file_id")
@@ -523,6 +549,8 @@ async def send_exam_answer_to_user(target, bid, qid, current_idx, total):
         a_file_id,
         reply_markup=next_markup,
         header="✅ *الجواب:*\n\n",
+        channel_msg_id=q.get("a_channel_msg_id"),
+        bot=bot,
     )
 
 async def on_poll_answer(update: Update, ctx):

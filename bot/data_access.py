@@ -238,9 +238,11 @@ def init_db():
                 q_type    TEXT NOT NULL DEFAULT 'text',
                 q_text    TEXT,
                 q_file_id TEXT,
+                q_channel_msg_id INTEGER,
                 a_type    TEXT NOT NULL DEFAULT 'text',
                 a_text    TEXT,
                 a_file_id TEXT,
+                a_channel_msg_id INTEGER,
                 ord       INTEGER DEFAULT 0
             );
         """)
@@ -253,7 +255,26 @@ def init_db():
                 PRIMARY KEY (button_id, user_id)
             );
         """)
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS exam_progress (
+                user_id INTEGER NOT NULL,
+                exam_button_id INTEGER NOT NULL,
+                total INTEGER DEFAULT 0,
+                answered INTEGER DEFAULT 0,
+                correct INTEGER DEFAULT 0,
+                wrong INTEGER DEFAULT 0,
+                completed INTEGER DEFAULT 0,
+                updated_at INTEGER DEFAULT 0,
+                PRIMARY KEY (user_id, exam_button_id)
+            );
+        """)
         c.commit()
+        for col in ("q_channel_msg_id", "a_channel_msg_id"):
+            try:
+                c.execute(f"ALTER TABLE exam_questions ADD COLUMN {col} INTEGER")
+                c.commit()
+            except Exception:
+                pass
 
 def is_admin(uid):
     return db().execute("SELECT 1 FROM admins WHERE id=?", (uid,)).fetchone() is not None
@@ -858,21 +879,21 @@ def kb_cancel_inline():
 
 # ── امتحانات ───────────────────────────────────────────────────────────────
 
-def add_exam_question(bid, q_type, q_text, q_file_id):
+def add_exam_question(bid, q_type, q_text, q_file_id, q_channel_msg_id=None):
     with db() as c:
         count = c.execute("SELECT COUNT(*) FROM exam_questions WHERE button_id=?", (bid,)).fetchone()[0]
         cur = c.execute(
-            "INSERT INTO exam_questions(button_id,q_type,q_text,q_file_id,ord) VALUES(?,?,?,?,?)",
-            (bid, q_type, q_text, q_file_id, count + 1)
+            "INSERT INTO exam_questions(button_id,q_type,q_text,q_file_id,q_channel_msg_id,ord) VALUES(?,?,?,?,?,?)",
+            (bid, q_type, q_text, q_file_id, q_channel_msg_id, count + 1)
         )
         qid = cur.lastrowid
     return qid
 
-def set_exam_answer(qid, a_type, a_text, a_file_id):
+def set_exam_answer(qid, a_type, a_text, a_file_id, a_channel_msg_id=None):
     with db() as c:
         c.execute(
-            "UPDATE exam_questions SET a_type=?, a_text=?, a_file_id=? WHERE id=?",
-            (a_type, a_text, a_file_id, qid)
+            "UPDATE exam_questions SET a_type=?, a_text=?, a_file_id=?, a_channel_msg_id=? WHERE id=?",
+            (a_type, a_text, a_file_id, a_channel_msg_id, qid)
         )
 
 def get_exam_questions(bid):
@@ -897,6 +918,99 @@ def toggle_random_exam(bid):
     with db() as c:
         c.execute("UPDATE buttons SET random_exam=? WHERE id=?", (new_val, bid))
     return bool(new_val)
+
+def reset_exam_progress(uid, bid, total):
+    import time as _time
+    with db() as c:
+        c.execute(
+            "INSERT OR REPLACE INTO exam_progress(user_id,exam_button_id,total,answered,correct,wrong,completed,updated_at) VALUES(?,?,?,?,?,?,?,?)",
+            (uid, bid, total, 0, 0, 0, 0, int(_time.time()))
+        )
+
+def mark_exam_answer(uid, bid, total, correct):
+    import time as _time
+    with db() as c:
+        row = c.execute(
+            "SELECT answered, correct, wrong FROM exam_progress WHERE user_id=? AND exam_button_id=?",
+            (uid, bid)
+        ).fetchone()
+        if row:
+            answered = (row["answered"] or 0) + 1
+            good = row["correct"] or 0
+            bad = row["wrong"] or 0
+        else:
+            answered, good, bad = 1, 0, 0
+        if correct:
+            good += 1
+        else:
+            bad += 1
+        completed = 1 if total and answered >= total else 0
+        c.execute(
+            "INSERT OR REPLACE INTO exam_progress(user_id,exam_button_id,total,answered,correct,wrong,completed,updated_at) VALUES(?,?,?,?,?,?,?,?)",
+            (uid, bid, total, answered, good, bad, completed, int(_time.time()))
+        )
+        return {"total": total, "answered": answered, "correct": good, "wrong": bad, "completed": completed}
+
+def finish_exam_progress(uid, bid, total):
+    import time as _time
+    with db() as c:
+        row = c.execute(
+            "SELECT answered, correct, wrong FROM exam_progress WHERE user_id=? AND exam_button_id=?",
+            (uid, bid)
+        ).fetchone()
+        answered = row["answered"] if row else 0
+        good = row["correct"] if row else 0
+        bad = row["wrong"] if row else 0
+        completed = 1 if total and answered >= total else 0
+        c.execute(
+            "INSERT OR REPLACE INTO exam_progress(user_id,exam_button_id,total,answered,correct,wrong,completed,updated_at) VALUES(?,?,?,?,?,?,?,?)",
+            (uid, bid, total, answered, good, bad, completed, int(_time.time()))
+        )
+        return {"total": total, "answered": answered, "correct": good, "wrong": bad, "completed": completed}
+
+def get_exam_progress(uid, bid):
+    row = db().execute(
+        "SELECT * FROM exam_progress WHERE user_id=? AND exam_button_id=?",
+        (uid, bid)
+    ).fetchone()
+    return dict(row) if row else {"total": len(get_exam_questions(bid)), "answered": 0, "correct": 0, "wrong": 0, "completed": 0}
+
+def get_exam_topics(parent_bid):
+    return [b for b in get_buttons(parent_bid) if b.get("type") == "exam"]
+
+def is_exam_topic_unlocked(uid, parent_bid, topic_bid):
+    for topic in get_exam_topics(parent_bid):
+        if topic["id"] == topic_bid:
+            return True
+        if not get_exam_progress(uid, topic["id"]).get("completed"):
+            return False
+    return True
+
+def exam_group_summary(uid, parent_bid):
+    topics = get_exam_topics(parent_bid)
+    total_topics = len(topics)
+    completed_topics = 0
+    total_q = answered = correct = wrong = 0
+    for topic in topics:
+        progress = get_exam_progress(uid, topic["id"])
+        if progress.get("completed"):
+            completed_topics += 1
+        qs = len(get_exam_questions(topic["id"]))
+        total_q += qs
+        answered += progress.get("answered") or 0
+        correct += progress.get("correct") or 0
+        wrong += progress.get("wrong") or 0
+    percent = round((completed_topics / total_topics) * 100) if total_topics else 0
+    return {
+        "topics": topics,
+        "total_topics": total_topics,
+        "completed_topics": completed_topics,
+        "total_questions": total_q,
+        "answered": answered,
+        "correct": correct,
+        "wrong": wrong,
+        "percent": percent,
+    }
 
 def kb_add_content_active(bid: int):
     return InlineKeyboardMarkup([[

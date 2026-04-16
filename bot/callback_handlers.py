@@ -489,7 +489,7 @@ async def cb_manage(update: Update, ctx):
             pass
         session = start_exam_session(ctx, uid, bid)
         if session["q_ids"]:
-            await send_exam_question_to_user(q.message, bid, session["q_ids"][0], 1, session["total"])
+            await send_exam_question_to_user(q.message, bid, session["q_ids"][0], 1, session["total"], bot=ctx.bot)
         return
 
     if d.startswith("ex_ans_"):
@@ -509,7 +509,48 @@ async def cb_manage(update: Update, ctx):
             await q.edit_message_reply_markup(reply_markup=None)
         except Exception:
             pass
-        await send_exam_answer_to_user(q.message, bid, qid, current_idx, total)
+        await send_exam_answer_to_user(q.message, bid, qid, current_idx, total, bot=ctx.bot)
+        return
+
+    if d.startswith("ex_mark_"):
+        parts = d[len("ex_mark_"):].split("_")
+        bid = int(parts[0])
+        qid = int(parts[1])
+        correct = parts[2] == "1"
+        await q.answer("✅ تم تسجيل إجابتك" if correct else "تم تسجيلها")
+        session = get_exam_session(ctx, bid)
+        if not session:
+            await q.message.reply_text("⚠️ انتهت الجلسة. اضغط على الاختبار مجدداً للبدء.")
+            return
+        if qid not in session.get("graded_qids", []):
+            session.setdefault("graded_qids", []).append(qid)
+            progress = mark_exam_answer(uid, bid, session["total"], correct)
+        else:
+            progress = get_exam_progress(uid, bid)
+        try:
+            current_idx = session["q_ids"].index(qid)
+        except ValueError:
+            current_idx = 0
+        try:
+            await q.edit_message_reply_markup(reply_markup=None)
+        except Exception:
+            pass
+        next_idx = current_idx + 1
+        if next_idx >= session["total"]:
+            ctx.user_data.pop(_exam_session_key(bid), None)
+            await q.message.reply_text(
+                "🎉 *أنهيت هذا الموضوع!*\n\n"
+                f"🧩 الأسئلة: *{progress.get('answered')}/{progress.get('total')}*\n"
+                f"✅ عرفت: *{progress.get('correct')}*\n"
+                f"❌ لم تعرف: *{progress.get('wrong')}*",
+                parse_mode="Markdown"
+            )
+            parent = (get_btn(bid) or {}).get("parent_id")
+            if parent and (get_btn(parent) or {}).get("type") == "exam_group":
+                await q.message.reply_text(exam_group_text(parent, uid), parse_mode="Markdown", reply_markup=kb_exam_group_user(parent, uid))
+            return
+        next_qid = session["q_ids"][next_idx]
+        await send_exam_question_to_user(q.message, bid, next_qid, next_idx + 1, session["total"], bot=ctx.bot)
         return
 
     if d.startswith("ex_next_"):
@@ -535,7 +576,7 @@ async def cb_manage(update: Update, ctx):
             ctx.user_data.pop(_exam_session_key(bid), None)
             return
         next_qid = session["q_ids"][next_idx]
-        await send_exam_question_to_user(q.message, bid, next_qid, next_idx + 1, session["total"])
+        await send_exam_question_to_user(q.message, bid, next_qid, next_idx + 1, session["total"], bot=ctx.bot)
         return
 
     if d.startswith("ex_finish_"):
@@ -545,8 +586,38 @@ async def cb_manage(update: Update, ctx):
             await q.edit_message_reply_markup(reply_markup=None)
         except Exception:
             pass
-        await q.message.reply_text("🎉 *أحسنت! أنهيت الامتحان.*\n\nتم عرض جميع الأسئلة.", parse_mode="Markdown")
+        session = get_exam_session(ctx, bid)
+        total = session["total"] if session else len(get_exam_questions(bid))
+        progress = finish_exam_progress(uid, bid, total)
+        await q.message.reply_text(
+            "🏁 *تم إنهاء الامتحان.*\n\n"
+            f"🧩 الأسئلة المجابة: *{progress.get('answered')}/{progress.get('total')}*\n"
+            f"✅ عرفت: *{progress.get('correct')}*\n"
+            f"❌ لم تعرف: *{progress.get('wrong')}*",
+            parse_mode="Markdown"
+        )
         ctx.user_data.pop(_exam_session_key(bid), None)
+        return
+
+    if d.startswith("exg_topic_"):
+        parts = d[len("exg_topic_"):].split("_")
+        parent_bid = int(parts[0])
+        topic_bid = int(parts[1])
+        if not is_exam_topic_unlocked(uid, parent_bid, topic_bid):
+            await q.answer("🔒 أكمل الموضوع السابق أولاً.", show_alert=True)
+            return
+        questions = get_exam_questions(topic_bid)
+        if not questions:
+            await q.answer("📭 هذا الموضوع لا يحتوي أسئلة بعد.", show_alert=True)
+            return
+        await q.answer()
+        await send_exam_ready(q.message, topic_bid)
+        return
+
+    if d.startswith("exg_stats_"):
+        parent_bid = int(d[len("exg_stats_"):])
+        await q.answer()
+        await q.edit_message_text(exam_group_text(parent_bid, uid), parse_mode="Markdown", reply_markup=kb_exam_group_user(parent_bid, uid))
         return
 
     await q.answer()
@@ -1415,8 +1486,8 @@ async def cb_manage(update: Update, ctx):
         ctx.user_data["add_pid"] = b["parent_id"] if b else None
         await q.edit_message_text("أين تريد إضافة الزر الجديد؟", reply_markup=kb_add_position(after_bid)); return
 
-    if d in ("pt_m", "pt_c", "pt_s", "pt_q", "pt_e"):
-        t = {"pt_m": "menu", "pt_c": "content", "pt_s": "special", "pt_q": "quiz", "pt_e": "exam"}[d]
+    if d in ("pt_m", "pt_c", "pt_s", "pt_q", "pt_e", "pt_g"):
+        t = {"pt_m": "menu", "pt_c": "content", "pt_s": "special", "pt_q": "quiz", "pt_e": "exam", "pt_g": "exam_group"}[d]
         ctx.user_data["new_type"] = t
         ctx.user_data["state"] = "wait_label"
         await q.edit_message_text("✏️ اكتب اسم الزر الجديد:", reply_markup=kb_cancel_inline()); return

@@ -146,6 +146,9 @@ def kb_add_type():
             InlineKeyboardButton("📝 اختبار", callback_data="pt_e"),
         ],
         [
+            InlineKeyboardButton("🎓 زر امتحان", callback_data="pt_g"),
+        ],
+        [
             InlineKeyboardButton("⭐ مميز (للمشرفين فقط)", callback_data="pt_s"),
         ],
         [
@@ -181,6 +184,46 @@ def kb_exam_quick(bid):
     rows.append([InlineKeyboardButton(rand_label, callback_data=f"ex_toggle_rand_{bid}")])
     rows.append([InlineKeyboardButton("✏️ تغيير الاسم", callback_data=f"el_{bid}")])
     rows.append([InlineKeyboardButton("🗑 حذف", callback_data=f"confirm_x_{bid}")])
+    return InlineKeyboardMarkup(rows)
+
+def exam_group_text(bid, uid):
+    b = get_btn(bid)
+    s = exam_group_summary(uid, bid)
+    return (
+        f"🎓 *{b['label'] if b else 'زر الامتحان'}*\n\n"
+        f"📚 المواضيع: *{s['completed_topics']}/{s['total_topics']}*\n"
+        f"🧩 الأسئلة المجابة: *{s['answered']}/{s['total_questions']}*\n"
+        f"✅ صحيحة: *{s['correct']}* | ❌ خاطئة: *{s['wrong']}*\n"
+        f"📈 الإنجاز: *{s['percent']}%*\n\n"
+        "ابدأ بالموضوع الأول، وبعد إكماله ينفتح الموضوع التالي."
+    )
+
+def kb_exam_group_user(bid, uid):
+    rows = []
+    topics = get_exam_topics(bid)
+    for topic in topics:
+        progress = get_exam_progress(uid, topic["id"])
+        unlocked = is_exam_topic_unlocked(uid, bid, topic["id"])
+        status = "✅" if progress.get("completed") else ("🔓" if unlocked else "🔒")
+        q_count = len(get_exam_questions(topic["id"]))
+        label = f"{status} {topic['label']} ({progress.get('answered') or 0}/{q_count})"
+        cb = f"exg_topic_{bid}_{topic['id']}" if unlocked else "noop"
+        rows.append([InlineKeyboardButton(label, callback_data=cb)])
+    if not rows:
+        rows.append([InlineKeyboardButton("📭 لا توجد مواضيع بعد", callback_data="noop")])
+    rows.append([InlineKeyboardButton("📊 إحصائيتي", callback_data=f"exg_stats_{bid}")])
+    return InlineKeyboardMarkup(rows)
+
+def kb_exam_group_quick(bid):
+    b = get_btn(bid)
+    topics = get_exam_topics(bid)
+    rows = [
+        [InlineKeyboardButton(f"📂 إدارة المواضيع ({len(topics)})", callback_data=f"m_{bid}")],
+        [InlineKeyboardButton("✏️ تغيير الاسم", callback_data=f"el_{bid}")],
+        [InlineKeyboardButton("🗑 حذف", callback_data=f"confirm_x_{bid}")],
+    ]
+    pid = b["parent_id"] if b else None
+    rows.append([InlineKeyboardButton("رجوع", callback_data="m_r" if pid is None else f"m_{pid}")])
     return InlineKeyboardMarkup(rows)
 
 def kb_exam_question_list(bid):

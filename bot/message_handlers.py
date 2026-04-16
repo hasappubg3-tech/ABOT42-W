@@ -365,6 +365,10 @@ async def on_message(update: Update, ctx):
             await set_panel(ctx, chat_id,
                             f"📄 *{text}*\n\nلا يوجد محتوى بعد. اضغط ➕ لإضافة محتوى.",
                             kb_content_panel(bid))
+        elif t == "exam_group":
+            await set_panel(ctx, chat_id,
+                            f"🎓 *{text}*\n\nزر امتحان رئيسي. افتحه وأضف داخله أزرار نوعها 📝 اختبار كمواضيع.",
+                            kb_exam_group_quick(bid))
         elif t == "special":
             await set_panel(ctx, chat_id,
                             f"⭐ *{text}*\n🔢 رقم الزر (ID): `{bid}`\n\n_هذا الزر مخصص — سلوكه يُحدَّد برمجياً._",
@@ -713,7 +717,13 @@ async def on_message(update: Update, ctx):
         q_type, q_text, q_file_id = detect_content(m)
         if not q_type:
             await m.reply_text("⚠️ أرسل نصاً أو صورة أو ملفاً."); return
-        qid = add_exam_question(bid, q_type, q_text, q_file_id)
+        q_channel_msg_id = None
+        if q_file_id:
+            q_channel_msg_id = await upload_to_channel(ctx.bot, q_file_id, q_type, q_text)
+            if get_storage_channel_id() and not q_channel_msg_id:
+                await m.reply_text("⚠️ لم يتم حفظ السؤال لأن رفعه لقناة التخزين فشل.")
+                return
+        qid = add_exam_question(bid, q_type, q_text, q_file_id, q_channel_msg_id)
         ctx.user_data["state"] = "wait_exam_a"
         ctx.user_data["exam_a_qid"] = qid
         await m.reply_text(
@@ -732,7 +742,14 @@ async def on_message(update: Update, ctx):
         if not a_type:
             await m.reply_text("⚠️ أرسل نصاً أو صورة أو ملفاً.")
             ctx.user_data["exam_a_qid"] = qid; return
-        set_exam_answer(qid, a_type, a_text, a_file_id)
+        a_channel_msg_id = None
+        if a_file_id:
+            a_channel_msg_id = await upload_to_channel(ctx.bot, a_file_id, a_type, a_text)
+            if get_storage_channel_id() and not a_channel_msg_id:
+                await m.reply_text("⚠️ لم يتم حفظ الجواب لأن رفعه لقناة التخزين فشل.")
+                ctx.user_data["exam_a_qid"] = qid
+                return
+        set_exam_answer(qid, a_type, a_text, a_file_id, a_channel_msg_id)
         ctx.user_data.pop("state", None)
         bid = q_obj["button_id"]
         questions = get_exam_questions(bid)
@@ -752,9 +769,16 @@ async def on_message(update: Update, ctx):
         if not q_type:
             await m.reply_text("⚠️ أرسل نصاً أو صورة أو ملفاً.")
             ctx.user_data["exam_edit_qid"] = qid; return
+        q_channel_msg_id = None
+        if q_file_id:
+            q_channel_msg_id = await upload_to_channel(ctx.bot, q_file_id, q_type, q_text)
+            if get_storage_channel_id() and not q_channel_msg_id:
+                await m.reply_text("⚠️ لم يتم تعديل السؤال لأن رفعه لقناة التخزين فشل.")
+                ctx.user_data["exam_edit_qid"] = qid
+                return
         with db() as _c:
-            _c.execute("UPDATE exam_questions SET q_type=?, q_text=?, q_file_id=? WHERE id=?",
-                       (q_type, q_text, q_file_id, qid))
+            _c.execute("UPDATE exam_questions SET q_type=?, q_text=?, q_file_id=?, q_channel_msg_id=? WHERE id=?",
+                       (q_type, q_text, q_file_id, q_channel_msg_id, qid))
         ctx.user_data.pop("state", None)
         await m.reply_text("✅ تم تعديل السؤال.")
         q_obj = get_exam_question(qid)
@@ -771,7 +795,14 @@ async def on_message(update: Update, ctx):
         if not a_type:
             await m.reply_text("⚠️ أرسل نصاً أو صورة أو ملفاً.")
             ctx.user_data["exam_edit_aqid"] = qid; return
-        set_exam_answer(qid, a_type, a_text, a_file_id)
+        a_channel_msg_id = None
+        if a_file_id:
+            a_channel_msg_id = await upload_to_channel(ctx.bot, a_file_id, a_type, a_text)
+            if get_storage_channel_id() and not a_channel_msg_id:
+                await m.reply_text("⚠️ لم يتم تعديل الجواب لأن رفعه لقناة التخزين فشل.")
+                ctx.user_data["exam_edit_aqid"] = qid
+                return
+        set_exam_answer(qid, a_type, a_text, a_file_id, a_channel_msg_id)
         ctx.user_data.pop("state", None)
         await m.reply_text("✅ تم تعديل الجواب.")
         await set_panel(ctx, chat_id, "📝 إدارة السؤال", kb_exam_question_manage(qid))
@@ -785,6 +816,8 @@ async def on_message(update: Update, ctx):
         b = get_btn(bid); ctx.user_data.pop("state", None)
         if b and b["type"] == "content":
             await set_panel(ctx, chat_id, f"📄 *{text}*", kb_content_panel(bid))
+        elif b and b["type"] == "exam_group":
+            await set_panel(ctx, chat_id, f"🎓 *{text}*", kb_exam_group_quick(bid))
         await m.reply_text("✅ تم تغيير الاسم.", reply_markup=build_kb(uid, pid))
         return
 
@@ -1091,6 +1124,16 @@ async def on_message(update: Update, ctx):
                 await m.reply_text("📭 لا توجد أسئلة في هذا الامتحان بعد.")
             else:
                 await send_exam_ready(m, b["id"])
+
+    elif b["type"] == "exam_group":
+        if is_admin(uid):
+            ctx.user_data["pid"] = b["id"]
+            await m.reply_text(".", reply_markup=build_kb(uid, b["id"]))
+            await set_panel(ctx, chat_id,
+                            f"🎓 *{b['label']}*\n_زر امتحان رئيسي — أضف داخله أزرار اختبار كمواضيع._",
+                            kb_exam_group_quick(b["id"]))
+        else:
+            await m.reply_text(exam_group_text(b["id"], uid), parse_mode="Markdown", reply_markup=kb_exam_group_user(b["id"], uid))
 
     elif b["type"] == "special":
         action = b.get("special_action")
