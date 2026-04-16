@@ -49,6 +49,7 @@ async def send_file_item(target, item, reply_markup=None, extra_caption=""):
             return await target.reply_video(fid, **kwargs)
         elif t == "audio":
             return await target.reply_audio(fid, **kwargs)
+        return None
 
     async def _send_from_local():
         if not lpath or not os.path.exists(lpath):
@@ -81,12 +82,24 @@ async def send_file_item(target, item, reply_markup=None, extra_caption=""):
     if t == "text":
         return await target.reply_text(cap, **({"reply_markup": reply_markup} if reply_markup else {}))
 
+    # أولوية: الملف المحلي أولاً (يعمل حتى عند تغيير التوكن)
+    # بعد الإرسال يُحدَّث file_id الجديد تلقائياً للإرسالات القادمة
+    if lpath and os.path.exists(lpath):
+        try:
+            msg = await _send_from_local()
+            if msg:
+                return msg
+        except Exception:
+            pass
+
+    # الرجوع لـ file_id إذا لا يوجد ملف محلي أو فشل الإرسال
     if fid:
         try:
             return await _send_from_fid()
         except Exception:
             pass
-    return await _send_from_local()
+
+    return None
 
 async def clear_add_content_control(ctx, chat_id):
     msg_id = ctx.user_data.pop("add_content_control_msg_id", None)
