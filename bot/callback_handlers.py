@@ -620,6 +620,31 @@ async def cb_manage(update: Update, ctx):
         await q.edit_message_text(exam_group_text(parent_bid, uid), parse_mode="Markdown", reply_markup=kb_exam_group_user(parent_bid, uid))
         return
 
+    if d.startswith("exg_manage_"):
+        bid = int(d[len("exg_manage_"):])
+        await q.answer()
+        b = get_btn(bid)
+        topics = get_exam_topics(bid)
+        await q.edit_message_text(
+            f"🎓 *{b['label'] if b else 'امتحان'}*\n_{len(topics)} موضوع_\n\nإدارة مواضيع الامتحان:",
+            parse_mode="Markdown", reply_markup=kb_exam_group_manage(bid))
+        return
+
+    if d.startswith("exg_add_topic_"):
+        bid = int(d[len("exg_add_topic_"):])
+        await q.answer()
+        ctx.user_data["new_type"] = "exam"
+        ctx.user_data["add_pid"] = bid
+        ctx.user_data.pop("add_after", None)
+        ctx.user_data.pop("add_new_row", None)
+        ctx.user_data.pop("add_before", None)
+        ctx.user_data["state"] = "wait_label"
+        ctx.user_data["_from_exg"] = bid
+        await q.edit_message_text(
+            "✏️ *إضافة موضوع جديد*\n\nاكتب اسم الموضوع:",
+            parse_mode="Markdown", reply_markup=kb_cancel_inline())
+        return
+
     await q.answer()
     if not is_admin(uid): return
     chat_id = q.message.chat_id
@@ -1140,6 +1165,11 @@ async def cb_manage(update: Update, ctx):
             await q.edit_message_text(
                 f"📝 *{b['label']}*\n_{len(questions)} سؤال_",
                 parse_mode="Markdown", reply_markup=kb_exam_panel(ep))
+        elif b and b["type"] == "exam_group":
+            topics = get_exam_topics(ep)
+            await q.edit_message_text(
+                f"🎓 *{b['label']}*\n_{len(topics)} موضوع_\n\nإدارة مواضيع الامتحان:",
+                parse_mode="Markdown", reply_markup=kb_exam_group_manage(ep))
         elif b and b["type"] == "special":
             action = b.get("special_action")
             if action == "container":
@@ -1173,6 +1203,11 @@ async def cb_manage(update: Update, ctx):
             await q.edit_message_text(
                 f"📝 *{b['label']}*\n_{len(questions)} سؤال_",
                 parse_mode="Markdown", reply_markup=kb_exam_panel(bid))
+        elif b["type"] == "exam_group":
+            topics = get_exam_topics(bid)
+            await q.edit_message_text(
+                f"🎓 *{b['label']}*\n_{len(topics)} موضوع_\n\nإدارة مواضيع الامتحان:",
+                parse_mode="Markdown", reply_markup=kb_exam_group_manage(bid))
         elif b["type"] == "special":
             action = b.get("special_action")
             if action == "container":

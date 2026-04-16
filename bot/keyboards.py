@@ -228,10 +228,30 @@ def kb_exam_group_quick(bid):
     b = get_btn(bid)
     topics = get_exam_topics(bid)
     rows = [
-        [InlineKeyboardButton(f"📂 إدارة المواضيع ({len(topics)})", callback_data=f"m_{bid}")],
+        [InlineKeyboardButton(f"📂 إدارة المواضيع ({len(topics)})", callback_data=f"exg_manage_{bid}")],
         [InlineKeyboardButton("✏️ تغيير الاسم", callback_data=f"el_{bid}")],
         [InlineKeyboardButton("🗑 حذف", callback_data=f"confirm_x_{bid}")],
     ]
+    pid = b["parent_id"] if b else None
+    rows.append([InlineKeyboardButton("رجوع", callback_data="m_r" if pid is None else f"m_{pid}")])
+    return InlineKeyboardMarkup(rows)
+
+def kb_exam_group_manage(bid):
+    """لوحة إدارة مواضيع زر الامتحان الرئيسي — خاصة بالمشرف."""
+    b = get_btn(bid)
+    topics = get_exam_topics(bid)
+    rows = []
+    for topic in topics:
+        q_count = len(get_exam_questions(topic["id"]))
+        rows.append([
+            InlineKeyboardButton(f"📝 {topic['label']} ({q_count} سؤال)", callback_data=f"e_{topic['id']}"),
+            InlineKeyboardButton("🗑", callback_data=f"confirm_x_{topic['id']}"),
+        ])
+    if not rows:
+        rows.append([InlineKeyboardButton("📭 لا توجد مواضيع بعد", callback_data="noop")])
+    rows.append([InlineKeyboardButton("➕ إضافة موضوع جديد", callback_data=f"exg_add_topic_{bid}")])
+    rows.append([InlineKeyboardButton("✏️ تغيير اسم زر الامتحان", callback_data=f"el_{bid}")])
+    rows.append([InlineKeyboardButton("🗑 حذف زر الامتحان", callback_data=f"confirm_x_{bid}")])
     pid = b["parent_id"] if b else None
     rows.append([InlineKeyboardButton("رجوع", callback_data="m_r" if pid is None else f"m_{pid}")])
     return InlineKeyboardMarkup(rows)

@@ -358,6 +358,7 @@ async def on_message(update: Update, ctx):
         ctx.user_data.pop("state", None); ctx.user_data.pop("new_type", None)
         ctx.user_data.pop("add_after", None); ctx.user_data.pop("add_pid", None)
         ctx.user_data.pop("add_new_row", None); ctx.user_data.pop("add_before", None)
+        from_exg = ctx.user_data.pop("_from_exg", None)
         ctx.user_data["pid"] = add_pid
         await m.reply_text(f"✅ تم إنشاء *{text}*", parse_mode="Markdown",
                            reply_markup=build_kb(uid, add_pid))
@@ -367,8 +368,18 @@ async def on_message(update: Update, ctx):
                             kb_content_panel(bid))
         elif t == "exam_group":
             await set_panel(ctx, chat_id,
-                            f"🎓 *{text}*\n\nزر امتحان رئيسي. افتحه وأضف داخله أزرار نوعها 📝 اختبار كمواضيع.",
+                            f"🎓 *{text}*\n\nزر امتحان رئيسي. اضغط على إدارة المواضيع لإضافة الاختبارات.",
                             kb_exam_group_quick(bid))
+        elif t == "exam":
+            parent_btn = get_btn(add_pid) if add_pid else None
+            if parent_btn and parent_btn["type"] == "exam_group":
+                await set_panel(ctx, chat_id,
+                                f"📝 *{text}*\n\n_موضوع جديد — أضف أسئلته الآن._",
+                                kb_exam_panel(bid))
+            else:
+                await set_panel(ctx, chat_id,
+                                f"📝 *{text}*\n\nلا يوجد أسئلة بعد. اضغط ➕ لإضافة سؤال.",
+                                kb_exam_panel(bid))
         elif t == "special":
             await set_panel(ctx, chat_id,
                             f"⭐ *{text}*\n🔢 رقم الزر (ID): `{bid}`\n\n_هذا الزر مخصص — سلوكه يُحدَّد برمجياً._",
@@ -1056,11 +1067,18 @@ async def on_message(update: Update, ctx):
             ctx.user_data.pop("add_after", None)
             ctx.user_data.pop("add_new_row", None)
             ctx.user_data.pop("add_before", None)
-            where_kb = kb_add_where(pid)
-            if where_kb:
-                await set_panel(ctx, chat_id, "⬆️⬇️ أين تريد إضافة الزر الجديد؟", where_kb)
+            current_btn = get_btn(pid) if pid else None
+            if current_btn and current_btn["type"] == "exam_group":
+                ctx.user_data["new_type"] = "exam"
+                ctx.user_data["state"] = "wait_label"
+                ctx.user_data["_from_exg"] = pid
+                await set_panel(ctx, chat_id, "✏️ *إضافة موضوع جديد*\n\nاكتب اسم الموضوع:", kb_cancel_inline())
             else:
-                await set_panel(ctx, chat_id, "اختر نوع الزر الجديد:", kb_add_type())
+                where_kb = kb_add_where(pid)
+                if where_kb:
+                    await set_panel(ctx, chat_id, "⬆️⬇️ أين تريد إضافة الزر الجديد؟", where_kb)
+                else:
+                    await set_panel(ctx, chat_id, "اختر نوع الزر الجديد:", kb_add_type())
             return
         if text.startswith(BTN_PLUS):
             after_bid = _parse_plus(text)
