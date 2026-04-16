@@ -24,6 +24,7 @@ def init_db():
                 content TEXT,
                 file_id TEXT,
                 local_path TEXT,
+                channel_msg_id INTEGER,
                 ord INTEGER DEFAULT 0
             );
             CREATE TABLE IF NOT EXISTS settings (
@@ -106,6 +107,11 @@ def init_db():
             pass
         try:
             c.execute("ALTER TABLE user_stats ADD COLUMN first_name TEXT")
+            c.commit()
+        except Exception:
+            pass
+        try:
+            c.execute("ALTER TABLE content_items ADD COLUMN channel_msg_id INTEGER")
             c.commit()
         except Exception:
             pass
@@ -542,15 +548,18 @@ def get_items(bid):
     return [dict(r) for r in db().execute(
         "SELECT * FROM content_items WHERE button_id=? ORDER BY ord,id", (bid,)).fetchall()]
 
-def add_item(bid, t, content=None, file_id=None, local_path=None):
+def add_item(bid, t, content=None, file_id=None, local_path=None, channel_msg_id=None):
     c = db(); cur = c.cursor()
     n = cur.execute("SELECT COALESCE(MAX(ord),0)+1 FROM content_items WHERE button_id=?", (bid,)).fetchone()[0]
-    cur.execute("INSERT INTO content_items(button_id,type,content,file_id,local_path,ord) VALUES(?,?,?,?,?,?)",
-                (bid, t, content, file_id, local_path, n))
+    cur.execute("INSERT INTO content_items(button_id,type,content,file_id,local_path,channel_msg_id,ord) VALUES(?,?,?,?,?,?,?)",
+                (bid, t, content, file_id, local_path, channel_msg_id, n))
     c.commit(); c.close()
 
 def upd_item_file_id(iid, file_id):
     c = db(); c.execute("UPDATE content_items SET file_id=? WHERE id=?", (file_id, iid)); c.commit(); c.close()
+
+def upd_item_channel_msg_id(iid, channel_msg_id):
+    c = db(); c.execute("UPDATE content_items SET channel_msg_id=? WHERE id=?", (channel_msg_id, iid)); c.commit(); c.close()
 
 def del_item(iid):
     c = db(); c.execute("DELETE FROM content_items WHERE id=?", (iid,)); c.commit(); c.close()

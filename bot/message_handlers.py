@@ -324,10 +324,10 @@ async def on_message(update: Update, ctx):
             t, content, fid = detect_content(m)
             if t is None:
                 await m.reply_text("⚠️ أرسل نصاً أو صورة أو ملفاً أو فيديو أو صوتاً."); return
-            lpath = None
+            channel_msg_id = None
             if fid:
-                lpath = await download_and_save(ctx.bot, fid, t)
-            add_item(bid, t, content, fid, lpath)
+                channel_msg_id = await upload_to_channel(ctx.bot, fid, t, content)
+            add_item(bid, t, content, fid, None, channel_msg_id)
             b = get_btn(bid)
             items = get_items(bid)
             await set_panel(ctx, chat_id,

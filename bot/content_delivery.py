@@ -15,17 +15,24 @@ def detect_content(m):
         return "text", m.text, None
     return None, None, None
 
-async def download_and_save(bot, file_id: str, file_type: str) -> str | None:
+async def upload_to_channel(bot, fid: str, file_type: str, caption: str = None) -> int | None:
+    if not STORAGE_CHANNEL_ID:
+        return None
     try:
-        import uuid
-        ext_map = {"photo": "jpg", "video": "mp4", "audio": "mp3", "file": "bin"}
-        ext = ext_map.get(file_type, "bin")
-        filename = f"{MEDIA_DIR}/{file_type}_{uuid.uuid4().hex}.{ext}"
-        tg_file = await bot.get_file(file_id)
-        await tg_file.download_to_drive(filename)
-        return filename
+        cap = caption or None
+        if file_type == "photo":
+            msg = await bot.send_photo(STORAGE_CHANNEL_ID, fid, caption=cap)
+        elif file_type == "file":
+            msg = await bot.send_document(STORAGE_CHANNEL_ID, fid, caption=cap)
+        elif file_type == "video":
+            msg = await bot.send_video(STORAGE_CHANNEL_ID, fid, caption=cap)
+        elif file_type == "audio":
+            msg = await bot.send_audio(STORAGE_CHANNEL_ID, fid, caption=cap)
+        else:
+            return None
+        return msg.message_id
     except Exception as e:
-        logging.warning(f"فشل تحميل الملف محلياً: {e}")
+        logging.warning(f"فشل رفع الملف للقناة: {e}")
         return None
 
 async def send_file_item(target, item, reply_markup=None, extra_caption=""):
@@ -36,9 +43,25 @@ async def send_file_item(target, item, reply_markup=None, extra_caption=""):
         cap = f"{cap}\n{extra_caption}" if cap else extra_caption
     lpath = item.get("local_path")
     iid = item.get("id")
+    channel_msg_id = item.get("channel_msg_id")
     kwargs = {"caption": cap}
     if reply_markup:
         kwargs["reply_markup"] = reply_markup
+
+    async def _send_from_channel():
+        if not channel_msg_id or not STORAGE_CHANNEL_ID:
+            return None
+        try:
+            return await target.bot.copy_message(
+                chat_id=target.chat_id,
+                from_chat_id=STORAGE_CHANNEL_ID,
+                message_id=channel_msg_id,
+                caption=cap or None,
+                reply_markup=reply_markup,
+            )
+        except Exception as e:
+            logging.warning(f"فشل الإرسال من القناة: {e}")
+            return None
 
     async def _send_from_fid():
         if t == "photo":
@@ -82,8 +105,13 @@ async def send_file_item(target, item, reply_markup=None, extra_caption=""):
     if t == "text":
         return await target.reply_text(cap, **({"reply_markup": reply_markup} if reply_markup else {}))
 
-    # أولوية: الملف المحلي أولاً (يعمل حتى عند تغيير التوكن)
-    # بعد الإرسال يُحدَّث file_id الجديد تلقائياً للإرسالات القادمة
+    # أولوية 1: الإرسال من قناة التخزين (الأسرع والأكثر موثوقية)
+    if channel_msg_id and STORAGE_CHANNEL_ID:
+        msg = await _send_from_channel()
+        if msg:
+            return msg
+
+    # أولوية 2: الملف المحلي (للملفات القديمة قبل تفعيل القناة)
     if lpath and os.path.exists(lpath):
         try:
             msg = await _send_from_local()
@@ -92,7 +120,7 @@ async def send_file_item(target, item, reply_markup=None, extra_caption=""):
         except Exception:
             pass
 
-    # الرجوع لـ file_id إذا لا يوجد ملف محلي أو فشل الإرسال
+    # أولوية 3: file_id مباشرة كحل أخير
     if fid:
         try:
             return await _send_from_fid()
