@@ -31,6 +31,7 @@ def _load_gemini_keys():
 GEMINI_KEYS = _load_gemini_keys()
 
 BTN_BACK     = "رجوع"
+BTN_HOME     = "🏠 القائمة الرئيسية"
 BTN_ADD      = "➕ إضافة"
 BTN_MANAGE   = "⚙️ إدارة"
 BTN_ADMINS   = "👥 مشرفون"
@@ -41,7 +42,7 @@ BTN_SWAP = "🔀 تغيير"
 
 ADMIN_BTNS   = {BTN_ADMINS}
 BTN_PLUS = "➕"
-SPECIAL_BTNS = {BTN_BACK, BTN_ADD, BTN_MANAGE, BTN_ADMINS, BTN_CANCEL, BTN_SWAP, BTN_PLUS,
+SPECIAL_BTNS = {BTN_BACK, BTN_HOME, BTN_ADD, BTN_MANAGE, BTN_ADMINS, BTN_CANCEL, BTN_SWAP, BTN_PLUS,
                 BTN_SETTINGS, "📂 قائمة", "📄 محتوى"}
 
 _SUP_DIGITS = "⁰¹²³⁴⁵⁶⁷⁸⁹"

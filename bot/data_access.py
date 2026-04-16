@@ -310,6 +310,9 @@ def set_setting(key, value):
 def get_global_caption():
     return get_setting("global_caption", "")
 
+def get_storage_channel_id():
+    return get_setting("storage_channel_id", "") or STORAGE_CHANNEL_ID
+
 def get_buttons(pid=None):
     if pid is None:
         q = "SELECT * FROM buttons WHERE parent_id IS NULL ORDER BY ord,id"

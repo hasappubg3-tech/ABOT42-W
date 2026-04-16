@@ -16,18 +16,19 @@ def detect_content(m):
     return None, None, None
 
 async def upload_to_channel(bot, fid: str, file_type: str, caption: str = None) -> int | None:
-    if not STORAGE_CHANNEL_ID:
+    ch = get_storage_channel_id()
+    if not ch:
         return None
     try:
         cap = caption or None
         if file_type == "photo":
-            msg = await bot.send_photo(STORAGE_CHANNEL_ID, fid, caption=cap)
+            msg = await bot.send_photo(ch, fid, caption=cap)
         elif file_type == "file":
-            msg = await bot.send_document(STORAGE_CHANNEL_ID, fid, caption=cap)
+            msg = await bot.send_document(ch, fid, caption=cap)
         elif file_type == "video":
-            msg = await bot.send_video(STORAGE_CHANNEL_ID, fid, caption=cap)
+            msg = await bot.send_video(ch, fid, caption=cap)
         elif file_type == "audio":
-            msg = await bot.send_audio(STORAGE_CHANNEL_ID, fid, caption=cap)
+            msg = await bot.send_audio(ch, fid, caption=cap)
         else:
             return None
         return msg.message_id
@@ -49,12 +50,13 @@ async def send_file_item(target, item, reply_markup=None, extra_caption=""):
         kwargs["reply_markup"] = reply_markup
 
     async def _send_from_channel():
-        if not channel_msg_id or not STORAGE_CHANNEL_ID:
+        ch = get_storage_channel_id()
+        if not channel_msg_id or not ch:
             return None
         try:
             return await target.bot.copy_message(
                 chat_id=target.chat_id,
-                from_chat_id=STORAGE_CHANNEL_ID,
+                from_chat_id=ch,
                 message_id=channel_msg_id,
                 caption=cap or None,
                 reply_markup=reply_markup,
@@ -106,7 +108,7 @@ async def send_file_item(target, item, reply_markup=None, extra_caption=""):
         return await target.reply_text(cap, **({"reply_markup": reply_markup} if reply_markup else {}))
 
     # أولوية 1: الإرسال من قناة التخزين (الأسرع والأكثر موثوقية)
-    if channel_msg_id and STORAGE_CHANNEL_ID:
+    if channel_msg_id and get_storage_channel_id():
         msg = await _send_from_channel()
         if msg:
             return msg

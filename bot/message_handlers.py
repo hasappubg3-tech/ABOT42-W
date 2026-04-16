@@ -480,6 +480,18 @@ async def on_message(update: Update, ctx):
                            reply_markup=build_kb(uid, pid))
         return
 
+    # ── انتظار معرّف قناة التخزين ────────────────────────────────
+    if state == "wait_storage_channel":
+        if not m.text or m.text in SPECIAL_BTNS:
+            await m.reply_text("⚠️ أرسل معرّف القناة (مثال: -1001234567890)."); return
+        ch = m.text.strip()
+        set_setting("storage_channel_id", ch)
+        ctx.user_data.pop("state", None)
+        await set_panel(ctx, chat_id, "⚙️ *الإعدادات*", kb_settings())
+        await m.reply_text(f"✅ تم حفظ قناة التخزين: `{ch}`", parse_mode="Markdown",
+                           reply_markup=build_kb(uid, pid))
+        return
+
     # ── انتظار عدد الضغطات قبل رسالة الاشتراك (النظام 1) ────────────────
     if state == "wait_notif_opens":
         try:
@@ -900,6 +912,13 @@ async def on_message(update: Update, ctx):
         else:
             ctx.user_data["pid"] = None
             await m.reply_text(".", reply_markup=build_kb(uid, None))
+        return
+
+    # ── القائمة الرئيسية ──────────────────────────────────────────
+    if text == BTN_HOME:
+        ctx.user_data["pid"] = None
+        start_msg = get_start_message()
+        await m.reply_text(start_msg, reply_markup=build_kb(uid, None))
         return
 
     # ── نسخة احتياطية يدوية ───────────────────────────────────────
