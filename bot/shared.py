@@ -31,7 +31,7 @@ def _load_gemini_keys():
 GEMINI_KEYS = _load_gemini_keys()
 
 BTN_BACK     = "رجوع"
-BTN_HOME     = "🏠 القائمة الرئيسية"
+BTN_HOME     = "القائمة الرئيسية"
 BTN_ADD      = "➕ إضافة"
 BTN_MANAGE   = "⚙️ إدارة"
 BTN_ADMINS   = "👥 مشرفون"
