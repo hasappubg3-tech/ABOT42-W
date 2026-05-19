@@ -7,6 +7,8 @@ import zipfile
 import datetime
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton, LabeledPrice
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, PollAnswerHandler, PreCheckoutQueryHandler, filters
+from pymongo import MongoClient, ASCENDING
+from pymongo.collection import Collection
 
 logging.basicConfig(format="%(asctime)s - %(levelname)s - %(message)s", level=logging.INFO)
 
@@ -17,6 +19,18 @@ MEDIA_DIR = "media"
 os.makedirs(MEDIA_DIR, exist_ok=True)
 
 GEMINI_MODEL = "gemini-2.5-flash"
+
+MONGODB_URI = os.environ.get("MONGODB_URI", "")
+
+_mongo_client = None
+_mongo_db = None
+
+def get_mongo_db():
+    global _mongo_client, _mongo_db
+    if _mongo_db is None:
+        _mongo_client = MongoClient(MONGODB_URI)
+        _mongo_db = _mongo_client.get_default_database() if "/" in MONGODB_URI.rsplit("@", 1)[-1] and MONGODB_URI.rsplit("/", 1)[-1].split("?")[0] else _mongo_client["botdb"]
+    return _mongo_db
 
 def _load_gemini_keys():
     keys = []
@@ -50,11 +64,9 @@ _SUP_DIGITS = "⁰¹²³⁴⁵⁶⁷⁸⁹"
 _SUP_MAP    = {c: str(i) for i, c in enumerate(_SUP_DIGITS)}
 
 def _plus_label(bid: int) -> str:
-    """يُنشئ نص زر ➕ + رقم الزر بأرقام فوقية مثل ➕⁵."""
     return BTN_PLUS + ''.join(_SUP_DIGITS[int(d)] for d in str(bid))
 
 def _parse_plus(text: str):
-    """يُعيد bid إذا كان النص زر ➕ مع أرقام فوقية، وإلا None."""
     if not text.startswith(BTN_PLUS):
         return None
     rest = text[len(BTN_PLUS):]
@@ -68,18 +80,12 @@ def _parse_plus(text: str):
     except Exception:
         return None
 
-# ── ترميز معرّف الزر بأحرف غير مرئية لتمييز الأزرار المتشابهة الاسم ──
-# نلصق بصمة غير مرئية بنهاية نص الزر تحوي معرّفه الفريد، فيظل النص الظاهر
-# مطابقاً للمستخدم بينما يتمكن البوت من التعرف على الزر المضغوط بدقة حتى
-# لو وُجد أكثر من زر بنفس الاسم في أماكن مختلفة، ولا يعتمد على آخر موقع
-# للمستخدم (pid) الذي قد يكون خاطئاً بسبب لوحة قديمة أو إعادة تشغيل.
-_BID_ZERO = "\u200B"   # ZWSP — البت 0
-_BID_ONE  = "\u200C"   # ZWNJ — البت 1
-_BID_END  = "\u2060"   # WJ   — نهاية البصمة
+_BID_ZERO = "\u200B"
+_BID_ONE  = "\u200C"
+_BID_END  = "\u2060"
 _BID_INVISIBLES = (_BID_ZERO, _BID_ONE, _BID_END)
 
 def _encode_bid(bid) -> str:
-    """يُولّد بصمة غير مرئية تُلصق بنص الزر لتُعرّف معرّفه الفريد."""
     try:
         n = int(bid)
     except (TypeError, ValueError):
@@ -90,7 +96,6 @@ def _encode_bid(bid) -> str:
     return "".join(_BID_ONE if c == "1" else _BID_ZERO for c in bits) + _BID_END
 
 def _decode_bid(text: str):
-    """يفك البصمة من نص الزر ويعيد (نص_بدون_البصمة, bid_or_None)."""
     if not text:
         return text, None
     bid = None

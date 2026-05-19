@@ -1,342 +1,96 @@
 from .shared import *
+import time as _time
 
-# ── قاعدة البيانات ────────────────────────────────────────────────
-def db():
-    c = sqlite3.connect(DB)
-    c.row_factory = sqlite3.Row
-    return c
+# ── مساعد: تحويل وثيقة MongoDB إلى dict مشابه لـ sqlite3.Row ──────
+def _d(doc):
+    if doc is None:
+        return None
+    doc = dict(doc)
+    doc.pop("_id", None)
+    return doc
 
+def _col(name: str):
+    return get_mongo_db()[name]
+
+# ── عداد تلقائي (بديل AUTOINCREMENT) ─────────────────────────────
+def _next_id(col_name: str) -> int:
+    result = get_mongo_db()["_counters"].find_one_and_update(
+        {"_id": col_name},
+        {"$inc": {"seq": 1}},
+        upsert=True,
+        return_document=True,
+    )
+    return result["seq"]
+
+# ── تهيئة قاعدة البيانات (فهارس) ─────────────────────────────────
 def init_db():
-    with db() as c:
-        c.executescript("""
-            CREATE TABLE IF NOT EXISTS admins (id INTEGER PRIMARY KEY, username TEXT);
-            CREATE TABLE IF NOT EXISTS buttons (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                parent_id INTEGER REFERENCES buttons(id) ON DELETE CASCADE,
-                type TEXT NOT NULL, label TEXT NOT NULL,
-                ord INTEGER DEFAULT 0,
-                new_row INTEGER DEFAULT 1
-            );
-            CREATE TABLE IF NOT EXISTS content_items (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                button_id INTEGER NOT NULL REFERENCES buttons(id) ON DELETE CASCADE,
-                type TEXT NOT NULL,
-                content TEXT,
-                file_id TEXT,
-                local_path TEXT,
-                channel_msg_id INTEGER,
-                ord INTEGER DEFAULT 0
-            );
-            CREATE TABLE IF NOT EXISTS settings (
-                key TEXT PRIMARY KEY,
-                value TEXT
-            );
-            CREATE TABLE IF NOT EXISTS caption_buttons (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                label TEXT NOT NULL,
-                url TEXT NOT NULL,
-                ord INTEGER DEFAULT 0
-            );
-            CREATE TABLE IF NOT EXISTS user_stats (
-                user_id   INTEGER PRIMARY KEY,
-                opens     INTEGER DEFAULT 0,
-                sessions  INTEGER DEFAULT 0,
-                last_notif_opens    INTEGER DEFAULT 0,
-                last_notif_sessions INTEGER DEFAULT 0
-            );
-        """)
-        try:
-            c.execute("ALTER TABLE buttons ADD COLUMN new_row INTEGER DEFAULT 1")
-            c.commit()
-        except Exception:
-            pass
-        try:
-            c.execute("ALTER TABLE buttons ADD COLUMN click_count INTEGER DEFAULT 0")
-            c.commit()
-        except Exception:
-            pass
-        try:
-            c.execute("ALTER TABLE content_items ADD COLUMN local_path TEXT")
-            c.commit()
-        except Exception:
-            pass
-        try:
-            c.execute("ALTER TABLE buttons ADD COLUMN no_caption INTEGER DEFAULT 0")
-            c.commit()
-        except Exception:
-            pass
-        try:
-            c.execute("ALTER TABLE buttons ADD COLUMN no_btn_caption INTEGER DEFAULT 0")
-            c.commit()
-        except Exception:
-            pass
-        try:
-            c.execute("ALTER TABLE user_stats ADD COLUMN pending_notif_bid INTEGER DEFAULT 0")
-            c.commit()
-        except Exception:
-            pass
-        try:
-            c.execute("ALTER TABLE user_stats ADD COLUMN subscribed_via_notif INTEGER DEFAULT 0")
-            c.commit()
-        except Exception:
-            pass
-        try:
-            c.execute("ALTER TABLE user_stats ADD COLUMN subscribed_at INTEGER DEFAULT 0")
-            c.commit()
-        except Exception:
-            pass
-        try:
-            c.execute("ALTER TABLE user_stats ADD COLUMN first_seen INTEGER DEFAULT 0")
-            c.commit()
-        except Exception:
-            pass
-        try:
-            c.execute("ALTER TABLE user_stats ADD COLUMN last_active INTEGER DEFAULT 0")
-            c.commit()
-        except Exception:
-            pass
-        try:
-            c.execute("ALTER TABLE user_stats ADD COLUMN ratings_hidden INTEGER DEFAULT 0")
-            c.commit()
-        except Exception:
-            pass
-        try:
-            c.execute("ALTER TABLE user_stats ADD COLUMN username TEXT")
-            c.commit()
-        except Exception:
-            pass
-        try:
-            c.execute("ALTER TABLE user_stats ADD COLUMN first_name TEXT")
-            c.commit()
-        except Exception:
-            pass
-        try:
-            c.execute("ALTER TABLE content_items ADD COLUMN channel_msg_id INTEGER")
-            c.commit()
-        except Exception:
-            pass
-        c.execute("""
-            CREATE TABLE IF NOT EXISTS daily_stats (
-                date      TEXT PRIMARY KEY,
-                msg_count INTEGER DEFAULT 0,
-                new_users INTEGER DEFAULT 0
-            );
-        """)
-        c.execute("""
-            CREATE TABLE IF NOT EXISTS user_button_clicks (
-                user_id   INTEGER NOT NULL,
-                button_id INTEGER NOT NULL,
-                PRIMARY KEY (user_id, button_id)
-            );
-        """)
-        c.execute("""
-            CREATE TABLE IF NOT EXISTS motivational_phrases (
-                id     INTEGER PRIMARY KEY AUTOINCREMENT,
-                phrase TEXT NOT NULL
-            );
-        """)
-        c.execute("""
-            CREATE TABLE IF NOT EXISTS pomodoro_settings (
-                user_id   INTEGER PRIMARY KEY,
-                enabled   INTEGER DEFAULT 1,
-                study_min INTEGER DEFAULT 25,
-                break_min INTEGER DEFAULT 5
-            );
-        """)
-        c.execute("""
-            CREATE TABLE IF NOT EXISTS item_ratings (
-                item_id INTEGER NOT NULL,
-                user_id INTEGER NOT NULL,
-                rating INTEGER NOT NULL,
-                rated_at INTEGER DEFAULT 0,
-                PRIMARY KEY (item_id, user_id)
-            );
-        """)
-        c.execute("""
-            CREATE TABLE IF NOT EXISTS file_request_admins (
-                user_id INTEGER PRIMARY KEY,
-                username TEXT
-            );
-        """)
-        c.execute("""
-            CREATE TABLE IF NOT EXISTS file_reply_sessions (
-                admin_id   INTEGER NOT NULL,
-                message_id INTEGER NOT NULL,
-                user_id    INTEGER NOT NULL,
-                PRIMARY KEY (admin_id, message_id)
-            );
-        """)
-        c.execute("""
-            CREATE TABLE IF NOT EXISTS user_reply_sessions (
-                user_id    INTEGER NOT NULL,
-                message_id INTEGER NOT NULL,
-                PRIMARY KEY (user_id, message_id)
-            );
-        """)
-        c.execute("""
-            CREATE TABLE IF NOT EXISTS active_file_convos (
-                user_id INTEGER PRIMARY KEY
-            );
-        """)
-        c.commit()
-        try:
-            c.execute("ALTER TABLE buttons ADD COLUMN special_action TEXT DEFAULT NULL")
-            c.commit()
-        except Exception:
-            pass
-        try:
-            c.execute("ALTER TABLE buttons ADD COLUMN unified_rating INTEGER DEFAULT 0")
-            c.commit()
-        except Exception:
-            pass
-        try:
-            c.execute("ALTER TABLE buttons ADD COLUMN compound_text TEXT DEFAULT NULL")
-            c.commit()
-        except Exception:
-            pass
-        try:
-            c.execute("ALTER TABLE buttons ADD COLUMN random_quiz INTEGER DEFAULT 0")
-            c.commit()
-        except Exception:
-            pass
-        c.execute("""
-            CREATE TABLE IF NOT EXISTS quiz_questions (
-                id        INTEGER PRIMARY KEY AUTOINCREMENT,
-                button_id INTEGER NOT NULL REFERENCES buttons(id) ON DELETE CASCADE,
-                question  TEXT NOT NULL,
-                correct_option INTEGER DEFAULT 0,
-                explanation    TEXT DEFAULT '',
-                ord       INTEGER DEFAULT 0
-            );
-        """)
-        c.execute("""
-            CREATE TABLE IF NOT EXISTS quiz_options (
-                id          INTEGER PRIMARY KEY AUTOINCREMENT,
-                question_id INTEGER NOT NULL REFERENCES quiz_questions(id) ON DELETE CASCADE,
-                text        TEXT NOT NULL,
-                ord         INTEGER DEFAULT 0
-            );
-        """)
-        c.execute("""
-            CREATE TABLE IF NOT EXISTS quiz_sent_log (
-                user_id     INTEGER NOT NULL,
-                question_id INTEGER NOT NULL,
-                sent_at     INTEGER DEFAULT 0,
-                PRIMARY KEY (user_id, question_id)
-            );
-        """)
-        c.commit()
-        try:
-            c.execute("ALTER TABLE buttons ADD COLUMN random_exam INTEGER DEFAULT 0")
-            c.commit()
-        except Exception:
-            pass
-        try:
-            c.execute("ALTER TABLE settings ADD COLUMN key TEXT")
-            c.commit()
-        except Exception:
-            pass
-        try:
-            c.execute("ALTER TABLE buttons ADD COLUMN hidden INTEGER DEFAULT 0")
-            c.commit()
-        except Exception:
-            pass
-        c.execute("""
-            CREATE TABLE IF NOT EXISTS exam_questions (
-                id        INTEGER PRIMARY KEY AUTOINCREMENT,
-                button_id INTEGER NOT NULL REFERENCES buttons(id) ON DELETE CASCADE,
-                q_type    TEXT NOT NULL DEFAULT 'text',
-                q_text    TEXT,
-                q_file_id TEXT,
-                q_channel_msg_id INTEGER,
-                a_type    TEXT NOT NULL DEFAULT 'text',
-                a_text    TEXT,
-                a_file_id TEXT,
-                a_channel_msg_id INTEGER,
-                ord       INTEGER DEFAULT 0
-            );
-        """)
-        c.execute("""
-            CREATE TABLE IF NOT EXISTS button_ratings (
-                button_id INTEGER NOT NULL,
-                user_id   INTEGER NOT NULL,
-                rating    INTEGER NOT NULL,
-                rated_at  INTEGER DEFAULT 0,
-                PRIMARY KEY (button_id, user_id)
-            );
-        """)
-        c.execute("""
-            CREATE TABLE IF NOT EXISTS exam_progress (
-                user_id INTEGER NOT NULL,
-                exam_button_id INTEGER NOT NULL,
-                total INTEGER DEFAULT 0,
-                answered INTEGER DEFAULT 0,
-                correct INTEGER DEFAULT 0,
-                wrong INTEGER DEFAULT 0,
-                completed INTEGER DEFAULT 0,
-                updated_at INTEGER DEFAULT 0,
-                PRIMARY KEY (user_id, exam_button_id)
-            );
-        """)
-        c.commit()
-        for col in ("q_channel_msg_id", "a_channel_msg_id"):
-            try:
-                c.execute(f"ALTER TABLE exam_questions ADD COLUMN {col} INTEGER")
-                c.commit()
-            except Exception:
-                pass
+    mdb = get_mongo_db()
+    mdb["buttons"].create_index([("parent_id", ASCENDING), ("ord", ASCENDING), ("id", ASCENDING)])
+    mdb["buttons"].create_index([("id", ASCENDING)], unique=True)
+    mdb["content_items"].create_index([("button_id", ASCENDING), ("ord", ASCENDING), ("id", ASCENDING)])
+    mdb["content_items"].create_index([("id", ASCENDING)], unique=True)
+    mdb["admins"].create_index([("id", ASCENDING)], unique=True)
+    mdb["settings"].create_index([("key", ASCENDING)], unique=True)
+    mdb["user_stats"].create_index([("user_id", ASCENDING)], unique=True)
+    mdb["quiz_questions"].create_index([("button_id", ASCENDING), ("ord", ASCENDING)])
+    mdb["quiz_questions"].create_index([("id", ASCENDING)], unique=True)
+    mdb["quiz_options"].create_index([("question_id", ASCENDING)])
+    mdb["quiz_options"].create_index([("id", ASCENDING)], unique=True)
+    mdb["exam_questions"].create_index([("button_id", ASCENDING), ("ord", ASCENDING)])
+    mdb["exam_questions"].create_index([("id", ASCENDING)], unique=True)
+    mdb["exam_progress"].create_index([("user_id", ASCENDING), ("exam_button_id", ASCENDING)], unique=True)
+    mdb["item_ratings"].create_index([("item_id", ASCENDING), ("user_id", ASCENDING)], unique=True)
+    mdb["button_ratings"].create_index([("button_id", ASCENDING), ("user_id", ASCENDING)], unique=True)
+    mdb["daily_stats"].create_index([("date", ASCENDING)], unique=True)
+    mdb["user_button_clicks"].create_index([("user_id", ASCENDING), ("button_id", ASCENDING)], unique=True)
+    mdb["caption_buttons"].create_index([("id", ASCENDING)], unique=True)
+    mdb["motivational_phrases"].create_index([("id", ASCENDING)], unique=True)
+    mdb["pomodoro_settings"].create_index([("user_id", ASCENDING)], unique=True)
+    mdb["file_request_admins"].create_index([("user_id", ASCENDING)], unique=True)
+    mdb["file_reply_sessions"].create_index([("admin_id", ASCENDING), ("message_id", ASCENDING)], unique=True)
+    mdb["user_reply_sessions"].create_index([("user_id", ASCENDING), ("message_id", ASCENDING)], unique=True)
+    mdb["active_file_convos"].create_index([("user_id", ASCENDING)], unique=True)
+    mdb["quiz_sent_log"].create_index([("user_id", ASCENDING), ("question_id", ASCENDING)], unique=True)
+    logging.info("MongoDB: تم تهيئة الفهارس.")
 
+# ── المشرفون ──────────────────────────────────────────────────────
 def is_admin(uid):
-    return db().execute("SELECT 1 FROM admins WHERE id=?", (uid,)).fetchone() is not None
+    return _col("admins").find_one({"id": uid}) is not None
 
 def add_admin(uid, name=None):
-    c = db(); c.execute("INSERT OR IGNORE INTO admins VALUES(?,?)", (uid, name)); c.commit(); c.close()
-
-def update_user_info(uid, username=None, first_name=None):
-    c = db()
-    if username is not None:
-        c.execute("UPDATE user_stats SET username=? WHERE user_id=?", (username.lstrip("@") if username else None, uid))
-    if first_name is not None:
-        c.execute("UPDATE user_stats SET first_name=? WHERE user_id=?", (first_name, uid))
-    c.commit(); c.close()
+    _col("admins").update_one({"id": uid}, {"$set": {"id": uid, "username": name}}, upsert=True)
 
 def update_admin_username(uid, username=None):
     if not username:
         return
-    c = db()
-    c.execute("UPDATE admins SET username=? WHERE id=?", (username.lstrip("@"), uid))
-    c.commit(); c.close()
+    _col("admins").update_one({"id": uid}, {"$set": {"username": username.lstrip("@")}})
+
+def get_admin_by_username(username):
+    username = (username or "").strip().lstrip("@").lower()
+    if not username:
+        return None
+    doc = _col("admins").find_one({"username": {"$regex": f"^{username}$", "$options": "i"}})
+    return _d(doc)
+
+def del_admin(uid):
+    _col("admins").delete_one({"id": uid})
+
+def all_admins():
+    return [_d(r) for r in _col("admins").find()]
+
+# ── الإعدادات ─────────────────────────────────────────────────────
+def get_setting(key, default=None):
+    doc = _col("settings").find_one({"key": key})
+    return doc["value"] if doc else default
+
+def set_setting(key, value):
+    _col("settings").update_one({"key": key}, {"$set": {"key": key, "value": value}}, upsert=True)
 
 def get_start_message():
     return get_setting("start_message", "👋 أهلاً!")
 
 def set_start_message(value):
     set_setting("start_message", value)
-
-def get_admin_by_username(username):
-    username = (username or "").strip().lstrip("@").lower()
-    if not username:
-        return None
-    r = db().execute(
-        "SELECT * FROM admins WHERE lower(COALESCE(username,''))=?",
-        (username,)
-    ).fetchone()
-    return dict(r) if r else None
-
-def del_admin(uid):
-    c = db(); c.execute("DELETE FROM admins WHERE id=?", (uid,)); c.commit(); c.close()
-
-def all_admins():
-    return [dict(r) for r in db().execute("SELECT * FROM admins").fetchall()]
-
-def get_setting(key, default=None):
-    r = db().execute("SELECT value FROM settings WHERE key=?", (key,)).fetchone()
-    return r[0] if r else default
-
-def set_setting(key, value):
-    c = db()
-    c.execute("INSERT OR REPLACE INTO settings(key,value) VALUES(?,?)", (key, value))
-    c.commit(); c.close()
 
 def get_global_caption():
     return get_setting("global_caption", "")
@@ -349,129 +103,131 @@ def get_storage_channel_id():
         return int(ch)
     return ch
 
+# ── الأزرار ───────────────────────────────────────────────────────
 def get_buttons(pid=None):
     if pid is None:
-        q = "SELECT * FROM buttons WHERE parent_id IS NULL ORDER BY ord,id"
-        return [dict(r) for r in db().execute(q).fetchall()]
-    return [dict(r) for r in db().execute(
-        "SELECT * FROM buttons WHERE parent_id=? ORDER BY ord,id", (pid,)).fetchall()]
+        docs = _col("buttons").find({"parent_id": None}).sort([("ord", 1), ("id", 1)])
+    else:
+        docs = _col("buttons").find({"parent_id": pid}).sort([("ord", 1), ("id", 1)])
+    return [_d(r) for r in docs]
 
 def get_btn(bid):
-    r = db().execute("SELECT * FROM buttons WHERE id=?", (bid,)).fetchone()
-    return dict(r) if r else None
+    return _d(_col("buttons").find_one({"id": bid}))
 
-def _siblings(cur, pid):
-    if pid is None:
-        return [r[0] for r in cur.execute(
-            "SELECT id FROM buttons WHERE parent_id IS NULL ORDER BY ord,id").fetchall()]
-    return [r[0] for r in cur.execute(
-        "SELECT id FROM buttons WHERE parent_id=? ORDER BY ord,id", (pid,)).fetchall()]
+def _siblings_ids(pid):
+    docs = _col("buttons").find(
+        {"parent_id": pid} if pid is not None else {"parent_id": None}
+    ).sort([("ord", 1), ("id", 1)])
+    return [d["id"] for d in docs]
 
-def _renumber(cur, ids):
+def _renumber(ids):
     for i, bid in enumerate(ids):
-        cur.execute("UPDATE buttons SET ord=? WHERE id=?", (i + 1, bid))
+        _col("buttons").update_one({"id": bid}, {"$set": {"ord": i + 1}})
 
 def add_btn(pid, t, label):
-    """يضيف زراً في نهاية القائمة. أزرار المحتوى تفعّل توحيد التقييم تلقائياً."""
-    c = db(); cur = c.cursor()
-    ids = _siblings(cur, pid)
+    ids = _siblings_ids(pid)
     ur = 1 if t == "content" else 0
-    cur.execute("INSERT INTO buttons(parent_id,type,label,ord,unified_rating) VALUES(?,?,?,?,?)",
-                (pid, t, label, len(ids) + 1, ur))
-    lid = cur.lastrowid; c.commit(); c.close(); return lid
+    new_id = _next_id("buttons")
+    _col("buttons").insert_one({
+        "id": new_id, "parent_id": pid, "type": t, "label": label,
+        "ord": len(ids) + 1, "new_row": 1, "click_count": 0,
+        "unified_rating": ur, "no_caption": 0, "no_btn_caption": 0,
+        "hidden": 0, "special_action": None, "compound_text": None,
+        "random_quiz": 0, "random_exam": 0,
+    })
+    return new_id
 
 def add_btn_before(before_bid, pid, t, label):
-    """يضيف زراً في صف جديد قبل before_bid مباشرة. أزرار المحتوى تفعّل توحيد التقييم تلقائياً."""
-    c = db(); cur = c.cursor()
-    ids = _siblings(cur, pid)
+    ids = _siblings_ids(pid)
     pos = ids.index(before_bid) if before_bid in ids else 0
     ur = 1 if t == "content" else 0
-    cur.execute("INSERT INTO buttons(parent_id,type,label,ord,new_row,unified_rating) VALUES(?,?,?,?,?,?)",
-                (pid, t, label, 0, 1, ur))
-    new_id = cur.lastrowid
+    new_id = _next_id("buttons")
+    _col("buttons").insert_one({
+        "id": new_id, "parent_id": pid, "type": t, "label": label,
+        "ord": 0, "new_row": 1, "click_count": 0,
+        "unified_rating": ur, "no_caption": 0, "no_btn_caption": 0,
+        "hidden": 0, "special_action": None, "compound_text": None,
+        "random_quiz": 0, "random_exam": 0,
+    })
     ids.insert(pos, new_id)
-    _renumber(cur, ids)
-    c.commit(); c.close(); return new_id
+    _renumber(ids)
+    return new_id
 
 def add_btn_after(after_bid, pid, t, label, new_row=1):
-    """يضيف زراً بعد after_bid، أو في البداية إذا كان after_bid=None. أزرار المحتوى تفعّل توحيد التقييم تلقائياً."""
-    c = db(); cur = c.cursor()
-    ids = _siblings(cur, pid)
+    ids = _siblings_ids(pid)
     if after_bid is None:
         pos = 0
     else:
         pos = (ids.index(after_bid) + 1) if after_bid in ids else len(ids)
     ur = 1 if t == "content" else 0
-    cur.execute("INSERT INTO buttons(parent_id,type,label,ord,new_row,unified_rating) VALUES(?,?,?,?,?,?)",
-                (pid, t, label, 0, new_row, ur))
-    new_id = cur.lastrowid
+    new_id = _next_id("buttons")
+    _col("buttons").insert_one({
+        "id": new_id, "parent_id": pid, "type": t, "label": label,
+        "ord": 0, "new_row": new_row, "click_count": 0,
+        "unified_rating": ur, "no_caption": 0, "no_btn_caption": 0,
+        "hidden": 0, "special_action": None, "compound_text": None,
+        "random_quiz": 0, "random_exam": 0,
+    })
     ids.insert(pos, new_id)
-    _renumber(cur, ids)
-    c.commit(); c.close(); return new_id
+    _renumber(ids)
+    return new_id
 
 def upd_btn_label(bid, label):
-    c = db(); c.execute("UPDATE buttons SET label=? WHERE id=?", (label, bid)); c.commit(); c.close()
+    _col("buttons").update_one({"id": bid}, {"$set": {"label": label}})
+
+def del_btn(bid):
+    _delete_btn_recursive(bid)
+
+def _delete_btn_recursive(bid):
+    children = _col("buttons").find({"parent_id": bid})
+    for child in children:
+        _delete_btn_recursive(child["id"])
+    _col("content_items").delete_many({"button_id": bid})
+    _col("quiz_questions").delete_many({"button_id": bid})
+    _col("exam_questions").delete_many({"button_id": bid})
+    _col("buttons").delete_one({"id": bid})
 
 def get_compound_text(bid):
-    """نص الرسالة التي تظهر للمستخدم عند ضغط الزر المدمج (افتراضي: 'اختر:')."""
-    r = db().execute("SELECT compound_text FROM buttons WHERE id=?", (bid,)).fetchone()
-    txt = (r["compound_text"] if r else None)
+    doc = _col("buttons").find_one({"id": bid}, {"compound_text": 1})
+    txt = doc.get("compound_text") if doc else None
     return txt if (txt is not None and str(txt).strip() != "") else "اختر:"
 
 def set_compound_text(bid, text):
-    c = db()
-    c.execute("UPDATE buttons SET compound_text=? WHERE id=?", (text, bid))
-    c.commit(); c.close()
+    _col("buttons").update_one({"id": bid}, {"$set": {"compound_text": text}})
 
 def set_btn_unified_rating(bid, val=1):
-    c = db()
-    c.execute("UPDATE buttons SET unified_rating=? WHERE id=?", (1 if val else 0, bid))
-    c.commit(); c.close()
+    _col("buttons").update_one({"id": bid}, {"$set": {"unified_rating": 1 if val else 0}})
 
 def set_btn_hidden(bid, val=1):
-    c = db()
-    c.execute("UPDATE buttons SET hidden=? WHERE id=?", (1 if val else 0, bid))
-    c.commit(); c.close()
+    _col("buttons").update_one({"id": bid}, {"$set": {"hidden": 1 if val else 0}})
 
 def set_btn_no_caption(bid, val=1):
-    c = db()
-    c.execute("UPDATE buttons SET no_caption=? WHERE id=?", (1 if val else 0, bid))
-    c.commit(); c.close()
+    _col("buttons").update_one({"id": bid}, {"$set": {"no_caption": 1 if val else 0}})
 
 def set_btn_no_btn_caption(bid, val=1):
-    c = db()
-    c.execute("UPDATE buttons SET no_btn_caption=? WHERE id=?", (1 if val else 0, bid))
-    c.commit(); c.close()
+    _col("buttons").update_one({"id": bid}, {"$set": {"no_btn_caption": 1 if val else 0}})
 
 def propagate_compound_settings(parent_bid):
-    """ينسخ إعدادات (توحيد التقييم، إلغاء الكليشتين) من زر مدمج إلى كل أزراره الداخلية."""
     parent = get_btn(parent_bid)
     if not parent or parent.get("type") != "compound":
         return
-    unified = parent.get("unified_rating", 0) or 0
-    no_cap  = parent.get("no_caption", 0) or 0
-    no_btn  = parent.get("no_btn_caption", 0) or 0
-    c = db()
-    c.execute(
-        "UPDATE buttons SET unified_rating=?, no_caption=?, no_btn_caption=? WHERE parent_id=?",
-        (unified, no_cap, no_btn, parent_bid)
-    )
-    c.commit(); c.close()
+    _col("buttons").update_many({"parent_id": parent_bid}, {"$set": {
+        "unified_rating": parent.get("unified_rating", 0) or 0,
+        "no_caption": parent.get("no_caption", 0) or 0,
+        "no_btn_caption": parent.get("no_btn_caption", 0) or 0,
+    }})
 
 def inc_click_count(bid, uid=None):
-    c = db()
     if uid is not None:
         try:
-            c.execute("INSERT INTO user_button_clicks(user_id, button_id) VALUES(?,?)", (uid, bid))
-            c.execute("UPDATE buttons SET click_count=COALESCE(click_count,0)+1 WHERE id=?", (bid,))
+            _col("user_button_clicks").insert_one({"user_id": uid, "button_id": bid})
+            _col("buttons").update_one({"id": bid}, {"$inc": {"click_count": 1}})
         except Exception:
-            pass  # المستخدم ضغط من قبل، لا نعدّ مرة ثانية
+            pass
     else:
-        c.execute("UPDATE buttons SET click_count=COALESCE(click_count,0)+1 WHERE id=?", (bid,))
-    c.commit(); c.close()
+        _col("buttons").update_one({"id": bid}, {"$inc": {"click_count": 1}})
 
 def get_btn_path(bid) -> str:
-    """يُرجع المسار الكامل للزر: قسم1 ‹ قسم2 ‹ اسم الزر"""
     parts = []
     current = get_btn(bid)
     while current:
@@ -482,7 +238,6 @@ def get_btn_path(bid) -> str:
     return " › ".join(parts)
 
 def _create_nested_buttons(parent_id, buttons_list, anchor_id=None, use_after=False):
-    """ينشئ قائمة أزرار داخل parent_id بشكل متداخل (يدعم children)."""
     added = []
     last_id = anchor_id
     for btn in buttons_list:
@@ -508,205 +263,175 @@ def _create_nested_buttons(parent_id, buttons_list, anchor_id=None, use_after=Fa
             added.extend(f"  └ {a}" for a in child_added)
     return added
 
-def del_btn(bid):
-    c = db(); c.execute("DELETE FROM buttons WHERE id=?", (bid,)); c.commit(); c.close()
+def swap_btns(bid1, bid2):
+    b1 = get_btn(bid1)
+    b2 = get_btn(bid2)
+    if not b1 or not b2:
+        return
+    _col("buttons").update_one({"id": bid1}, {"$set": {"ord": b2["ord"], "new_row": b2["new_row"]}})
+    _col("buttons").update_one({"id": bid2}, {"$set": {"ord": b1["ord"], "new_row": b1["new_row"]}})
 
-# ── الزر الخاص (singleton type='special') ─────────────────────────
+# ── الزر الخاص ───────────────────────────────────────────────────
 def get_special_btn():
-    r = db().execute("SELECT * FROM buttons WHERE type='special' LIMIT 1").fetchone()
-    return dict(r) if r else None
+    return _d(_col("buttons").find_one({"type": "special"}))
 
 def create_special_btn(label: str, pid=None) -> int:
-    """ينشئ الزر الخاص في نهاية المستوى المحدد ويُرجع id."""
     return add_btn(pid, "special", label)
 
 def move_special_btn(bid: int, new_pid):
-    """ينقل الزر الخاص إلى مستوى جديد (new_pid=None يعني الجذر)."""
-    c = db()
-    ids = _siblings(c.cursor(), new_pid)
+    ids = _siblings_ids(new_pid)
     new_ord = len(ids) + 1
-    if new_pid is None:
-        c.execute("UPDATE buttons SET parent_id=NULL, ord=?, new_row=1 WHERE id=?", (new_ord, bid))
-    else:
-        c.execute("UPDATE buttons SET parent_id=?, ord=?, new_row=1 WHERE id=?", (new_pid, new_ord, bid))
-    c.commit(); c.close()
+    _col("buttons").update_one({"id": bid}, {"$set": {"parent_id": new_pid, "ord": new_ord, "new_row": 1}})
 
 def all_menu_levels() -> list:
-    """يُرجع قائمة بجميع أزرار النوع menu مرتبة (للاختيار من بينها كوجهة نقل)."""
-    return [dict(r) for r in db().execute(
-        "SELECT id, label, parent_id FROM buttons WHERE type='menu' ORDER BY ord, id"
-    ).fetchall()]
+    docs = _col("buttons").find({"type": "menu"}).sort([("ord", 1), ("id", 1)])
+    return [_d(r) for r in docs]
 
 def get_all_special_btns() -> list:
-    """يُرجع قائمة بجميع الأزرار المميزة."""
-    return [dict(r) for r in db().execute(
-        "SELECT * FROM buttons WHERE type='special' ORDER BY ord, id"
-    ).fetchall()]
+    docs = _col("buttons").find({"type": "special"}).sort([("ord", 1), ("id", 1)])
+    return [_d(r) for r in docs]
 
 def set_btn_special_action(bid, action):
-    c = db()
-    c.execute("UPDATE buttons SET special_action=? WHERE id=?", (action, bid))
-    c.commit(); c.close()
+    _col("buttons").update_one({"id": bid}, {"$set": {"special_action": action}})
 
+# ── مشرفو الملفات ─────────────────────────────────────────────────
 def get_file_request_admins():
-    return [dict(r) for r in db().execute(
-        "SELECT user_id, username FROM file_request_admins ORDER BY user_id"
-    ).fetchall()]
+    return [_d(r) for r in _col("file_request_admins").find().sort("user_id", 1)]
 
 def is_file_supervisor(uid):
     if is_admin(uid):
         return True
-    return db().execute(
-        "SELECT 1 FROM file_request_admins WHERE user_id=?", (uid,)
-    ).fetchone() is not None
+    return _col("file_request_admins").find_one({"user_id": uid}) is not None
 
 def add_file_request_admin(uid, username=None):
-    c = db()
-    c.execute(
-        "INSERT OR REPLACE INTO file_request_admins(user_id,username) VALUES(?,?)",
-        (uid, username)
+    _col("file_request_admins").update_one(
+        {"user_id": uid}, {"$set": {"user_id": uid, "username": username}}, upsert=True
     )
-    c.commit(); c.close()
 
 def del_file_request_admin(uid):
-    c = db()
-    c.execute("DELETE FROM file_request_admins WHERE user_id=?", (uid,))
-    c.commit(); c.close()
+    _col("file_request_admins").delete_one({"user_id": uid})
 
+# ── جلسات الردود ──────────────────────────────────────────────────
 def save_file_reply_session(admin_id, message_id, user_id):
-    c = db()
-    c.execute(
-        "INSERT OR REPLACE INTO file_reply_sessions(admin_id,message_id,user_id) VALUES(?,?,?)",
-        (admin_id, message_id, user_id)
+    _col("file_reply_sessions").update_one(
+        {"admin_id": admin_id, "message_id": message_id},
+        {"$set": {"admin_id": admin_id, "message_id": message_id, "user_id": user_id}},
+        upsert=True
     )
-    c.commit(); c.close()
 
 def get_file_reply_user(admin_id, message_id):
-    r = db().execute(
-        "SELECT user_id FROM file_reply_sessions WHERE admin_id=? AND message_id=?",
-        (admin_id, message_id)
-    ).fetchone()
-    return r["user_id"] if r else None
+    doc = _col("file_reply_sessions").find_one({"admin_id": admin_id, "message_id": message_id})
+    return doc["user_id"] if doc else None
 
 def del_file_reply_session(admin_id, message_id):
-    c = db()
-    c.execute("DELETE FROM file_reply_sessions WHERE admin_id=? AND message_id=?", (admin_id, message_id))
-    c.commit(); c.close()
+    _col("file_reply_sessions").delete_one({"admin_id": admin_id, "message_id": message_id})
 
 def save_user_reply_session(user_id, message_id):
-    c = db()
-    c.execute(
-        "INSERT OR REPLACE INTO user_reply_sessions(user_id,message_id) VALUES(?,?)",
-        (user_id, message_id)
+    _col("user_reply_sessions").update_one(
+        {"user_id": user_id, "message_id": message_id},
+        {"$set": {"user_id": user_id, "message_id": message_id}},
+        upsert=True
     )
-    c.commit(); c.close()
 
 def is_user_reply_msg(user_id, message_id):
-    return db().execute(
-        "SELECT 1 FROM user_reply_sessions WHERE user_id=? AND message_id=?",
-        (user_id, message_id)
-    ).fetchone() is not None
+    return _col("user_reply_sessions").find_one({"user_id": user_id, "message_id": message_id}) is not None
 
 def set_file_convo_active(user_id):
-    c = db()
-    c.execute("INSERT OR IGNORE INTO active_file_convos(user_id) VALUES(?)", (user_id,))
-    c.commit(); c.close()
+    _col("active_file_convos").update_one(
+        {"user_id": user_id}, {"$set": {"user_id": user_id}}, upsert=True
+    )
 
 def is_file_convo_active(user_id):
-    return db().execute(
-        "SELECT 1 FROM active_file_convos WHERE user_id=?", (user_id,)
-    ).fetchone() is not None
+    return _col("active_file_convos").find_one({"user_id": user_id}) is not None
 
 def clear_file_convo(user_id):
-    c = db()
-    c.execute("DELETE FROM active_file_convos WHERE user_id=?", (user_id,))
-    c.commit(); c.close()
+    _col("active_file_convos").delete_one({"user_id": user_id})
 
-def swap_btns(bid1, bid2):
-    """يبدّل موضع زرين (ord + new_row)."""
-    c = db(); cur = c.cursor()
-    b1 = dict(cur.execute("SELECT ord, new_row FROM buttons WHERE id=?", (bid1,)).fetchone())
-    b2 = dict(cur.execute("SELECT ord, new_row FROM buttons WHERE id=?", (bid2,)).fetchone())
-    cur.execute("UPDATE buttons SET ord=?, new_row=? WHERE id=?", (b2['ord'], b2['new_row'], bid1))
-    cur.execute("UPDATE buttons SET ord=?, new_row=? WHERE id=?", (b1['ord'], b1['new_row'], bid2))
-    c.commit(); c.close()
-
-# ── content_items ─────────────────────────────────────────────────
+# ── عناصر المحتوى ────────────────────────────────────────────────
 def get_items(bid):
-    return [dict(r) for r in db().execute(
-        "SELECT * FROM content_items WHERE button_id=? ORDER BY ord,id", (bid,)).fetchall()]
+    docs = _col("content_items").find({"button_id": bid}).sort([("ord", 1), ("id", 1)])
+    return [_d(r) for r in docs]
 
 def get_storage_summary():
-    row = db().execute("""
-        SELECT
-            COUNT(*) AS total_files,
-            SUM(CASE WHEN channel_msg_id IS NOT NULL AND channel_msg_id != 0 THEN 1 ELSE 0 END) AS in_channel,
-            SUM(CASE WHEN channel_msg_id IS NULL OR channel_msg_id = 0 THEN 1 ELSE 0 END) AS missing_channel,
-            SUM(CASE WHEN (channel_msg_id IS NULL OR channel_msg_id = 0) AND local_path IS NOT NULL AND local_path != '' THEN 1 ELSE 0 END) AS repairable_local,
-            SUM(CASE WHEN (channel_msg_id IS NULL OR channel_msg_id = 0) AND (local_path IS NULL OR local_path = '') AND file_id IS NOT NULL AND file_id != '' THEN 1 ELSE 0 END) AS repairable_file_id
-        FROM content_items
-        WHERE type != 'text'
-    """).fetchone()
-    return dict(row) if row else {
-        "total_files": 0,
-        "in_channel": 0,
-        "missing_channel": 0,
-        "repairable_local": 0,
-        "repairable_file_id": 0,
-    }
+    pipeline = [
+        {"$match": {"type": {"$ne": "text"}}},
+        {"$group": {
+            "_id": None,
+            "total_files": {"$sum": 1},
+            "in_channel": {"$sum": {"$cond": [{"$and": [{"$ne": ["$channel_msg_id", None]}, {"$ne": ["$channel_msg_id", 0]}]}, 1, 0]}},
+            "missing_channel": {"$sum": {"$cond": [{"$or": [{"$eq": ["$channel_msg_id", None]}, {"$eq": ["$channel_msg_id", 0]}]}, 1, 0]}},
+            "repairable_local": {"$sum": {"$cond": [{"$and": [
+                {"$or": [{"$eq": ["$channel_msg_id", None]}, {"$eq": ["$channel_msg_id", 0]}]},
+                {"$and": [{"$ne": ["$local_path", None]}, {"$ne": ["$local_path", ""]}]}
+            ]}, 1, 0]}},
+            "repairable_file_id": {"$sum": {"$cond": [{"$and": [
+                {"$or": [{"$eq": ["$channel_msg_id", None]}, {"$eq": ["$channel_msg_id", 0]}]},
+                {"$or": [{"$eq": ["$local_path", None]}, {"$eq": ["$local_path", ""]}]},
+                {"$and": [{"$ne": ["$file_id", None]}, {"$ne": ["$file_id", ""]}]}
+            ]}, 1, 0]}},
+        }}
+    ]
+    result = list(_col("content_items").aggregate(pipeline))
+    if not result:
+        return {"total_files": 0, "in_channel": 0, "missing_channel": 0, "repairable_local": 0, "repairable_file_id": 0}
+    r = result[0]
+    r.pop("_id", None)
+    return r
 
 def get_items_missing_channel():
-    return [dict(r) for r in db().execute("""
-        SELECT * FROM content_items
-        WHERE type != 'text' AND (channel_msg_id IS NULL OR channel_msg_id = 0)
-        ORDER BY id
-    """).fetchall()]
+    docs = _col("content_items").find({
+        "type": {"$ne": "text"},
+        "$or": [{"channel_msg_id": None}, {"channel_msg_id": 0}]
+    }).sort("id", 1)
+    return [_d(r) for r in docs]
 
 def add_item(bid, t, content=None, file_id=None, local_path=None, channel_msg_id=None):
-    c = db(); cur = c.cursor()
-    n = cur.execute("SELECT COALESCE(MAX(ord),0)+1 FROM content_items WHERE button_id=?", (bid,)).fetchone()[0]
-    cur.execute("INSERT INTO content_items(button_id,type,content,file_id,local_path,channel_msg_id,ord) VALUES(?,?,?,?,?,?,?)",
-                (bid, t, content, file_id, local_path, channel_msg_id, n))
-    c.commit(); c.close()
+    last = _col("content_items").find_one({"button_id": bid}, sort=[("ord", -1)])
+    n = (last["ord"] if last else 0) + 1
+    new_id = _next_id("content_items")
+    _col("content_items").insert_one({
+        "id": new_id, "button_id": bid, "type": t,
+        "content": content, "file_id": file_id,
+        "local_path": local_path, "channel_msg_id": channel_msg_id, "ord": n
+    })
 
 def upd_item_file_id(iid, file_id):
-    c = db(); c.execute("UPDATE content_items SET file_id=? WHERE id=?", (file_id, iid)); c.commit(); c.close()
+    _col("content_items").update_one({"id": iid}, {"$set": {"file_id": file_id}})
 
 def upd_item_channel_msg_id(iid, channel_msg_id):
-    c = db(); c.execute("UPDATE content_items SET channel_msg_id=? WHERE id=?", (channel_msg_id, iid)); c.commit(); c.close()
+    _col("content_items").update_one({"id": iid}, {"$set": {"channel_msg_id": channel_msg_id}})
 
 def del_item(iid):
-    c = db(); c.execute("DELETE FROM content_items WHERE id=?", (iid,)); c.commit(); c.close()
+    _col("content_items").delete_one({"id": iid})
 
 def upd_item_content(iid, content):
-    c = db(); c.execute("UPDATE content_items SET content=? WHERE id=?", (content, iid)); c.commit(); c.close()
+    _col("content_items").update_one({"id": iid}, {"$set": {"content": content}})
 
 def get_item(iid):
-    r = db().execute("SELECT * FROM content_items WHERE id=?", (iid,)).fetchone()
-    return dict(r) if r else None
+    return _d(_col("content_items").find_one({"id": iid}))
 
+# ── تقييم العناصر ────────────────────────────────────────────────
 def get_item_rating_summary(iid: int) -> dict:
-    row = db().execute(
-        "SELECT COUNT(*) AS cnt, COALESCE(AVG(rating),0) AS avg_rating FROM item_ratings WHERE item_id=?",
-        (iid,)
-    ).fetchone()
-    return {"count": row["cnt"] if row else 0, "avg": float(row["avg_rating"] or 0) if row else 0.0}
+    pipeline = [
+        {"$match": {"item_id": iid}},
+        {"$group": {"_id": None, "cnt": {"$sum": 1}, "avg_rating": {"$avg": "$rating"}}}
+    ]
+    result = list(_col("item_ratings").aggregate(pipeline))
+    if not result:
+        return {"count": 0, "avg": 0.0}
+    r = result[0]
+    return {"count": r["cnt"], "avg": float(r.get("avg_rating") or 0)}
 
 def get_user_item_rating(iid: int, uid: int):
-    row = db().execute(
-        "SELECT rating FROM item_ratings WHERE item_id=? AND user_id=?",
-        (iid, uid)
-    ).fetchone()
-    return row["rating"] if row else None
+    doc = _col("item_ratings").find_one({"item_id": iid, "user_id": uid})
+    return doc["rating"] if doc else None
 
 def save_item_rating(iid: int, uid: int, rating: int):
-    import time as _time
-    c = db()
-    c.execute(
-        "INSERT OR REPLACE INTO item_ratings(item_id,user_id,rating,rated_at) VALUES(?,?,?,?)",
-        (iid, uid, rating, int(_time.time()))
+    _col("item_ratings").update_one(
+        {"item_id": iid, "user_id": uid},
+        {"$set": {"item_id": iid, "user_id": uid, "rating": rating, "rated_at": int(_time.time())}},
+        upsert=True
     )
-    c.commit(); c.close()
 
 def rating_stars(avg: float) -> str:
     filled = int(round(avg))
@@ -749,27 +474,26 @@ async def send_item_rating_message(target, item, uid=None):
 
 # ── تقييم موحد على مستوى الزر ────────────────────────────────────
 def get_btn_rating_summary(bid: int) -> dict:
-    row = db().execute(
-        "SELECT COUNT(*) AS cnt, COALESCE(AVG(rating),0) AS avg_rating FROM button_ratings WHERE button_id=?",
-        (bid,)
-    ).fetchone()
-    return {"count": row["cnt"] if row else 0, "avg": float(row["avg_rating"] or 0) if row else 0.0}
+    pipeline = [
+        {"$match": {"button_id": bid}},
+        {"$group": {"_id": None, "cnt": {"$sum": 1}, "avg_rating": {"$avg": "$rating"}}}
+    ]
+    result = list(_col("button_ratings").aggregate(pipeline))
+    if not result:
+        return {"count": 0, "avg": 0.0}
+    r = result[0]
+    return {"count": r["cnt"], "avg": float(r.get("avg_rating") or 0)}
 
 def get_user_btn_rating(bid: int, uid: int):
-    row = db().execute(
-        "SELECT rating FROM button_ratings WHERE button_id=? AND user_id=?",
-        (bid, uid)
-    ).fetchone()
-    return row["rating"] if row else None
+    doc = _col("button_ratings").find_one({"button_id": bid, "user_id": uid})
+    return doc["rating"] if doc else None
 
 def save_btn_rating(bid: int, uid: int, rating: int):
-    import time as _time
-    c = db()
-    c.execute(
-        "INSERT OR REPLACE INTO button_ratings(button_id,user_id,rating,rated_at) VALUES(?,?,?,?)",
-        (bid, uid, rating, int(_time.time()))
+    _col("button_ratings").update_one(
+        {"button_id": bid, "user_id": uid},
+        {"$set": {"button_id": bid, "user_id": uid, "rating": rating, "rated_at": int(_time.time())}},
+        upsert=True
     )
-    c.commit(); c.close()
 
 def btn_rating_text(bid: int, uid: int | None = None) -> str:
     s = get_btn_rating_summary(bid)
@@ -800,9 +524,11 @@ def kb_btn_rating_choices(bid: int):
 async def send_btn_unified_rating_message(target, bid: int, uid=None):
     await target.reply_text(btn_rating_text(bid, uid), reply_markup=kb_btn_rating(bid))
 
+# ── الإحصائيات ───────────────────────────────────────────────────
+def _today_str():
+    return datetime.datetime.utcnow().strftime("%Y-%m-%d")
 
 def get_stats() -> str:
-    import time as _time
     now = int(_time.time())
     today = _today_str()
     yesterday = (datetime.datetime.utcnow() - datetime.timedelta(days=1)).strftime("%Y-%m-%d")
@@ -810,41 +536,35 @@ def get_stats() -> str:
     ts_7d  = now - 7  * 86400
     ts_14d = now - 14 * 86400
     ts_30d = now - 30 * 86400
+    mdb = get_mongo_db()
 
-    with db() as c:
-        # ── المستخدمون ──────────────────────────────────
-        total_users   = c.execute("SELECT COUNT(*) FROM user_stats").fetchone()[0]
-        new_today     = c.execute("SELECT COALESCE(SUM(new_users),0) FROM daily_stats WHERE date=?", (today,)).fetchone()[0]
-        new_yesterday = c.execute("SELECT COALESCE(SUM(new_users),0) FROM daily_stats WHERE date=?", (yesterday,)).fetchone()[0]
-        new_month     = c.execute("SELECT COALESCE(SUM(new_users),0) FROM daily_stats WHERE date>=?", (day30_ago,)).fetchone()[0]
+    total_users   = mdb["user_stats"].count_documents({})
+    today_doc     = mdb["daily_stats"].find_one({"date": today})
+    yest_doc      = mdb["daily_stats"].find_one({"date": yesterday})
+    new_today     = today_doc["new_users"] if today_doc else 0
+    new_yesterday = yest_doc["new_users"] if yest_doc else 0
+    new_month     = sum(d.get("new_users", 0) for d in mdb["daily_stats"].find({"date": {"$gte": day30_ago}}))
+    msg_today     = today_doc["msg_count"] if today_doc else 0
+    msg_yesterday = yest_doc["msg_count"] if yest_doc else 0
+    msg_month     = sum(d.get("msg_count", 0) for d in mdb["daily_stats"].find({"date": {"$gte": day30_ago}}))
 
-        # ── الرسائل ──────────────────────────────────────
-        msg_today     = c.execute("SELECT COALESCE(SUM(msg_count),0) FROM daily_stats WHERE date=?", (today,)).fetchone()[0]
-        msg_yesterday = c.execute("SELECT COALESCE(SUM(msg_count),0) FROM daily_stats WHERE date=?", (yesterday,)).fetchone()[0]
-        msg_month     = c.execute("SELECT COALESCE(SUM(msg_count),0) FROM daily_stats WHERE date>=?", (day30_ago,)).fetchone()[0]
+    eligible_7d  = mdb["user_stats"].count_documents({"first_seen": {"$gt": 0, "$lte": ts_14d}})
+    retained_7d  = mdb["user_stats"].count_documents({"first_seen": {"$gt": 0, "$lte": ts_14d}, "last_active": {"$gte": ts_7d}})
+    eligible_30d = mdb["user_stats"].count_documents({"first_seen": {"$gt": 0, "$lte": ts_30d}})
+    retained_30d = mdb["user_stats"].count_documents({"first_seen": {"$gt": 0, "$lte": ts_30d}, "last_active": {"$gte": ts_30d}})
 
-        # ── الاحتفاظ بالمستخدمين ─────────────────────────
-        # مستخدمون انضموا قبل 14 يوم أو أكثر (يمكن تقييمهم)
-        eligible_7d  = c.execute("SELECT COUNT(*) FROM user_stats WHERE first_seen>0 AND first_seen<=?", (ts_14d,)).fetchone()[0]
-        retained_7d  = c.execute("SELECT COUNT(*) FROM user_stats WHERE first_seen>0 AND first_seen<=? AND last_active>=?", (ts_14d, ts_7d)).fetchone()[0]
-        eligible_30d = c.execute("SELECT COUNT(*) FROM user_stats WHERE first_seen>0 AND first_seen<=?", (ts_30d,)).fetchone()[0]
-        retained_30d = c.execute("SELECT COUNT(*) FROM user_stats WHERE first_seen>0 AND first_seen<=? AND last_active>=?", (ts_30d, ts_30d)).fetchone()[0]
+    ts_today_start = int(datetime.datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0).timestamp())
+    ts_yest_start  = ts_today_start - 86400
+    ts_month_start = now - 30 * 86400
+    subscribed_via_notif = mdb["user_stats"].count_documents({"subscribed_via_notif": 1})
+    sub_today    = mdb["user_stats"].count_documents({"subscribed_at": {"$gte": ts_today_start}})
+    sub_yesterday= mdb["user_stats"].count_documents({"subscribed_at": {"$gte": ts_yest_start, "$lt": ts_today_start}})
+    sub_month    = mdb["user_stats"].count_documents({"subscribed_at": {"$gte": ts_month_start}})
 
-        # ── القناة ───────────────────────────────────────
-        import time as _time2
-        ts_today_start    = int(datetime.datetime.utcnow().replace(hour=0,minute=0,second=0,microsecond=0).timestamp())
-        ts_yest_start     = ts_today_start - 86400
-        ts_month_start    = int((_time2.time()) - 30 * 86400)
-        subscribed_via_notif  = c.execute("SELECT COUNT(*) FROM user_stats WHERE subscribed_via_notif=1").fetchone()[0]
-        sub_today             = c.execute("SELECT COUNT(*) FROM user_stats WHERE subscribed_at>=?", (ts_today_start,)).fetchone()[0]
-        sub_yesterday         = c.execute("SELECT COUNT(*) FROM user_stats WHERE subscribed_at>=? AND subscribed_at<?", (ts_yest_start, ts_today_start)).fetchone()[0]
-        sub_month             = c.execute("SELECT COUNT(*) FROM user_stats WHERE subscribed_at>=?", (ts_month_start,)).fetchone()[0]
-
-        # ── البوت ────────────────────────────────────────
-        total_btns = c.execute("SELECT COUNT(*) FROM buttons").fetchone()[0]
-        menus      = c.execute("SELECT COUNT(*) FROM buttons WHERE type='menu'").fetchone()[0]
-        content    = c.execute("SELECT COUNT(*) FROM buttons WHERE type='content'").fetchone()[0]
-        admins     = c.execute("SELECT COUNT(*) FROM admins").fetchone()[0]
+    total_btns = mdb["buttons"].count_documents({})
+    menus      = mdb["buttons"].count_documents({"type": "menu"})
+    content    = mdb["buttons"].count_documents({"type": "content"})
+    admins     = mdb["admins"].count_documents({})
 
     retention_7d  = f"{round(retained_7d/eligible_7d*100)}%" if eligible_7d > 0 else "—"
     retention_30d = f"{round(retained_30d/eligible_30d*100)}%" if eligible_30d > 0 else "—"
@@ -873,40 +593,35 @@ def get_stats() -> str:
         "🤖 *البوت*\n"
         f"  ├ قوائم: `{menus}` | محتوى: `{content}` | إجمالي: `{total_btns}`\n"
         f"  ├ المشرفون: `{admins}`\n"
-        f"  └ حجم قاعدة البيانات: `{db_size_kb} KB`"
+        f"  └ حجم قاعدة بيانات SQLite المحلية: `{db_size_kb} KB`"
     )
 
 def get_trending_page(page: int, page_size: int = 10):
-    """يُرجع (قائمة الأزرار, إجمالي العدد) لصفحة معينة مرتّبة بالأكثر طلباً."""
     offset = page * page_size
-    rows = db().execute(
-        "SELECT id, label, click_count FROM buttons WHERE type='content' AND COALESCE(click_count,0)>0 "
-        "ORDER BY click_count DESC LIMIT ? OFFSET ?",
-        (page_size, offset)
-    ).fetchall()
-    total = db().execute(
-        "SELECT COUNT(*) FROM buttons WHERE type='content' AND COALESCE(click_count,0)>0"
-    ).fetchone()[0]
-    return [dict(r) for r in rows], total
+    docs = list(_col("buttons").find(
+        {"type": "content", "click_count": {"$gt": 0}}
+    ).sort("click_count", -1).skip(offset).limit(page_size))
+    total = _col("buttons").count_documents({"type": "content", "click_count": {"$gt": 0}})
+    return [_d(r) for r in docs], total
 
 _TYPE_ICON = {"text": "📝", "photo": "🖼", "video": "🎬", "file": "📁", "audio": "🎵"}
 
 def _content_summary(bid) -> str:
-    """يُرجع ملخص أنواع المحتوى داخل الزر مثل: 🖼×2 🎬×1"""
-    rows = db().execute(
-        "SELECT type, COUNT(*) as cnt FROM content_items WHERE button_id=? GROUP BY type", (bid,)
-    ).fetchall()
+    pipeline = [
+        {"$match": {"button_id": bid}},
+        {"$group": {"_id": "$type", "cnt": {"$sum": 1}}}
+    ]
+    rows = list(_col("content_items").aggregate(pipeline))
     if not rows:
         return "📭"
     parts = []
     for r in rows:
-        icon = _TYPE_ICON.get(r["type"], "📄")
+        icon = _TYPE_ICON.get(r["_id"], "📄")
         cnt = r["cnt"]
         parts.append(f"{icon}×{cnt}" if cnt > 1 else icon)
     return " ".join(parts)
 
 def build_trending_text(page: int, page_size: int = 10) -> tuple:
-    """يبني النص ولوحة التنقل للترند. يُرجع (text, markup)."""
     btns, total = get_trending_page(page, page_size)
     total_pages = max(1, (total + page_size - 1) // page_size)
     if not btns:
@@ -936,103 +651,87 @@ def build_trending_text(page: int, page_size: int = 10) -> tuple:
 def kb_cancel_inline():
     return InlineKeyboardMarkup([[InlineKeyboardButton("❌ إلغاء", callback_data="cancel")]])
 
-# ── امتحانات ───────────────────────────────────────────────────────────────
-
+# ── الامتحانات ───────────────────────────────────────────────────
 def add_exam_question(bid, q_type, q_text, q_file_id, q_channel_msg_id=None):
-    with db() as c:
-        count = c.execute("SELECT COUNT(*) FROM exam_questions WHERE button_id=?", (bid,)).fetchone()[0]
-        cur = c.execute(
-            "INSERT INTO exam_questions(button_id,q_type,q_text,q_file_id,q_channel_msg_id,ord) VALUES(?,?,?,?,?,?)",
-            (bid, q_type, q_text, q_file_id, q_channel_msg_id, count + 1)
-        )
-        qid = cur.lastrowid
-    return qid
+    count = _col("exam_questions").count_documents({"button_id": bid})
+    new_id = _next_id("exam_questions")
+    _col("exam_questions").insert_one({
+        "id": new_id, "button_id": bid,
+        "q_type": q_type, "q_text": q_text, "q_file_id": q_file_id,
+        "q_channel_msg_id": q_channel_msg_id,
+        "a_type": "text", "a_text": None, "a_file_id": None, "a_channel_msg_id": None,
+        "ord": count + 1
+    })
+    return new_id
 
 def set_exam_answer(qid, a_type, a_text, a_file_id, a_channel_msg_id=None):
-    with db() as c:
-        c.execute(
-            "UPDATE exam_questions SET a_type=?, a_text=?, a_file_id=?, a_channel_msg_id=? WHERE id=?",
-            (a_type, a_text, a_file_id, a_channel_msg_id, qid)
-        )
+    _col("exam_questions").update_one({"id": qid}, {"$set": {
+        "a_type": a_type, "a_text": a_text,
+        "a_file_id": a_file_id, "a_channel_msg_id": a_channel_msg_id
+    }})
 
 def get_exam_questions(bid):
-    return [dict(r) for r in db().execute(
-        "SELECT * FROM exam_questions WHERE button_id=? ORDER BY ord, id", (bid,)
-    ).fetchall()]
+    docs = _col("exam_questions").find({"button_id": bid}).sort([("ord", 1), ("id", 1)])
+    return [_d(r) for r in docs]
 
 def get_exam_question(qid):
-    r = db().execute("SELECT * FROM exam_questions WHERE id=?", (qid,)).fetchone()
-    return dict(r) if r else None
+    return _d(_col("exam_questions").find_one({"id": qid}))
 
 def del_exam_question(qid):
-    with db() as c:
-        c.execute("DELETE FROM exam_questions WHERE id=?", (qid,))
+    _col("exam_questions").delete_one({"id": qid})
 
 def toggle_random_exam(bid):
     b = get_btn(bid)
     if not b:
         return False
-    current = b.get("random_exam", 0) or 0
-    new_val = 0 if current else 1
-    with db() as c:
-        c.execute("UPDATE buttons SET random_exam=? WHERE id=?", (new_val, bid))
+    new_val = 0 if (b.get("random_exam", 0) or 0) else 1
+    _col("buttons").update_one({"id": bid}, {"$set": {"random_exam": new_val}})
     return bool(new_val)
 
 def reset_exam_progress(uid, bid, total):
-    import time as _time
-    with db() as c:
-        c.execute(
-            "INSERT OR REPLACE INTO exam_progress(user_id,exam_button_id,total,answered,correct,wrong,completed,updated_at) VALUES(?,?,?,?,?,?,?,?)",
-            (uid, bid, total, 0, 0, 0, 0, int(_time.time()))
-        )
+    _col("exam_progress").update_one(
+        {"user_id": uid, "exam_button_id": bid},
+        {"$set": {"user_id": uid, "exam_button_id": bid, "total": total,
+                  "answered": 0, "correct": 0, "wrong": 0, "completed": 0,
+                  "updated_at": int(_time.time())}},
+        upsert=True
+    )
 
 def mark_exam_answer(uid, bid, total, correct):
-    import time as _time
-    with db() as c:
-        row = c.execute(
-            "SELECT answered, correct, wrong FROM exam_progress WHERE user_id=? AND exam_button_id=?",
-            (uid, bid)
-        ).fetchone()
-        if row:
-            answered = (row["answered"] or 0) + 1
-            good = row["correct"] or 0
-            bad = row["wrong"] or 0
-        else:
-            answered, good, bad = 1, 0, 0
-        if correct:
-            good += 1
-        else:
-            bad += 1
-        completed = 1 if total and answered >= total else 0
-        c.execute(
-            "INSERT OR REPLACE INTO exam_progress(user_id,exam_button_id,total,answered,correct,wrong,completed,updated_at) VALUES(?,?,?,?,?,?,?,?)",
-            (uid, bid, total, answered, good, bad, completed, int(_time.time()))
-        )
-        return {"total": total, "answered": answered, "correct": good, "wrong": bad, "completed": completed}
+    doc = _col("exam_progress").find_one({"user_id": uid, "exam_button_id": bid})
+    answered = (doc["answered"] if doc else 0) + 1
+    good = (doc["correct"] if doc else 0) + (1 if correct else 0)
+    bad  = (doc["wrong"]   if doc else 0) + (0 if correct else 1)
+    completed = 1 if total and answered >= total else 0
+    _col("exam_progress").update_one(
+        {"user_id": uid, "exam_button_id": bid},
+        {"$set": {"user_id": uid, "exam_button_id": bid, "total": total,
+                  "answered": answered, "correct": good, "wrong": bad,
+                  "completed": completed, "updated_at": int(_time.time())}},
+        upsert=True
+    )
+    return {"total": total, "answered": answered, "correct": good, "wrong": bad, "completed": completed}
 
 def finish_exam_progress(uid, bid, total):
-    import time as _time
-    with db() as c:
-        row = c.execute(
-            "SELECT answered, correct, wrong FROM exam_progress WHERE user_id=? AND exam_button_id=?",
-            (uid, bid)
-        ).fetchone()
-        answered = row["answered"] if row else 0
-        good = row["correct"] if row else 0
-        bad = row["wrong"] if row else 0
-        completed = 1 if total and answered >= total else 0
-        c.execute(
-            "INSERT OR REPLACE INTO exam_progress(user_id,exam_button_id,total,answered,correct,wrong,completed,updated_at) VALUES(?,?,?,?,?,?,?,?)",
-            (uid, bid, total, answered, good, bad, completed, int(_time.time()))
-        )
-        return {"total": total, "answered": answered, "correct": good, "wrong": bad, "completed": completed}
+    doc = _col("exam_progress").find_one({"user_id": uid, "exam_button_id": bid})
+    answered = doc["answered"] if doc else 0
+    good     = doc["correct"]  if doc else 0
+    bad      = doc["wrong"]    if doc else 0
+    completed = 1 if total and answered >= total else 0
+    _col("exam_progress").update_one(
+        {"user_id": uid, "exam_button_id": bid},
+        {"$set": {"user_id": uid, "exam_button_id": bid, "total": total,
+                  "answered": answered, "correct": good, "wrong": bad,
+                  "completed": completed, "updated_at": int(_time.time())}},
+        upsert=True
+    )
+    return {"total": total, "answered": answered, "correct": good, "wrong": bad, "completed": completed}
 
 def get_exam_progress(uid, bid):
-    row = db().execute(
-        "SELECT * FROM exam_progress WHERE user_id=? AND exam_button_id=?",
-        (uid, bid)
-    ).fetchone()
-    return dict(row) if row else {"total": len(get_exam_questions(bid)), "answered": 0, "correct": 0, "wrong": 0, "completed": 0}
+    doc = _col("exam_progress").find_one({"user_id": uid, "exam_button_id": bid})
+    if doc:
+        return _d(doc)
+    return {"total": len(get_exam_questions(bid)), "answered": 0, "correct": 0, "wrong": 0, "completed": 0}
 
 def get_exam_topics(parent_bid):
     return [b for b in get_buttons(parent_bid) if b.get("type") == "exam"]
@@ -1055,23 +754,28 @@ def exam_group_summary(uid, parent_bid):
         if progress.get("completed"):
             completed_topics += 1
         qs = len(get_exam_questions(topic["id"]))
-        total_q += qs
+        total_q  += qs
         answered += progress.get("answered") or 0
-        correct += progress.get("correct") or 0
-        wrong += progress.get("wrong") or 0
+        correct  += progress.get("correct") or 0
+        wrong    += progress.get("wrong") or 0
     percent = round((completed_topics / total_topics) * 100) if total_topics else 0
     return {
-        "topics": topics,
-        "total_topics": total_topics,
-        "completed_topics": completed_topics,
-        "total_questions": total_q,
-        "answered": answered,
-        "correct": correct,
-        "wrong": wrong,
-        "percent": percent,
+        "topics": topics, "total_topics": total_topics,
+        "completed_topics": completed_topics, "total_questions": total_q,
+        "answered": answered, "correct": correct, "wrong": wrong, "percent": percent,
     }
 
 def kb_add_content_active(bid: int):
     return InlineKeyboardMarkup([[
         InlineKeyboardButton("✅ انتهاء الإضافة", callback_data=f"ci_add_done_{bid}")
     ]])
+
+# ── إحصائيات المستخدمين ──────────────────────────────────────────
+def update_user_info(uid, username=None, first_name=None):
+    upd = {}
+    if username is not None:
+        upd["username"] = username.lstrip("@") if username else None
+    if first_name is not None:
+        upd["first_name"] = first_name
+    if upd:
+        _col("user_stats").update_one({"user_id": uid}, {"$set": upd})

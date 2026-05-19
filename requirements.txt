@@ -5,3 +5,5 @@ flask
 httpx
 python-telegram-bot==20.7
 requests
+dnspython
+pymongo
