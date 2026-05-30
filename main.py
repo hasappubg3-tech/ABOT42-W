@@ -7,7 +7,8 @@ def main():
     if not BOT_TOKEN:
         logging.error("TELEGRAM_BOT_TOKEN غير موجود!"); return
     init_db()
-    app = Application.builder().token(BOT_TOKEN).post_init(post_init).build()
+    from telegram.ext import JobQueue
+    app = Application.builder().token(BOT_TOKEN).post_init(post_init).job_queue(JobQueue()).build()
 
     media_filter = (filters.TEXT | filters.PHOTO | filters.Document.ALL |
                     filters.VIDEO | filters.AUDIO | filters.VOICE) & ~filters.COMMAND
