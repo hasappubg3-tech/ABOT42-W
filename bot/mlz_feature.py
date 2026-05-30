@@ -71,16 +71,12 @@ async def _call_gemini_text(prompt: str) -> str | None:
                     logging.warning(f"[MLZ] Gemini error: {e}")
     return None
 
-# ── تنظيف النص المصدر ────────────────────────────────────────────
+# ── استخراج المعلومات الأربع بالذكاء الاصطناعي ───────────────────
 def _clean_source_text(text: str) -> str:
-    """يُنظّف النص من الروابط والتعليق والرموز الزخرفية."""
-    cleaned = _re.sub(r'https?://\S+', '', text)          # روابط
-    cleaned = _re.sub(r'@\w+', '', cleaned)                # @mentions
-    cleaned = _re.sub(r'\b\w+\.\w{2,4}\b', '', cleaned)   # نطاقات مثل iraqedu.net
-    cleaned = _re.sub(
-        r'[✧✦✩✪✫✬✭✮✯✰★☆⭐━─═●○◆◇■□▪▫»«\-_=~^*]{2,}', ' ', cleaned
-    )
-    cleaned = _re.sub(r'[\u0640]', '', cleaned)            # kashida
+    """يُنظّف النص من الرموز الزخرفية."""
+    cleaned = _re.sub(r'[✧✦✩✪✫✬✭✮✯✰★☆⭐━─═●○◆◇■□▪▫»«\-_=~^*]{2,}', ' ', text)
+    cleaned = _re.sub(r'https?://\S+', '', cleaned)
+    cleaned = _re.sub(r'[\u0640]', '', cleaned)          # kashida
     cleaned = _re.sub(r'[\u064B-\u065F\u0670]', '', cleaned)  # harakat
     cleaned = _re.sub(r'\s+', ' ', cleaned).strip()
     return cleaned
@@ -89,7 +85,6 @@ def _clean_source_text(text: str) -> str:
 _GRADE_LEVELS = r'(?:السادس|الخامس|الرابع|الثالث|الثاني|الأول|الاول|السابع|الثامن|التاسع|العاشر)'
 _GRADE_TYPES  = r'(?:علمي|أدبي|ادبي|إعدادي|اعدادي|أعدادي|الإعدادي|الاعدادي|الأعدادي|متوسط|ابتدائي|ثانوي|تطبيقي|مهني|الأعدادية|الاعدادية)'
 _TEACHER_PREFIX = r'(?:الأستاذ|الاستاذ|أستاذ|استاذ|للأستاذ|للاستاذ|المدرس|للمدرس|الدكتور|للدكتور|أ\.|م\.)'
-_GRADE_ANCHOR   = r'(?:السادس|الخامس|الرابع|الثالث|الثاني|الأول|الاول|السابع|الثامن|التاسع|العاشر)'
 
 _ORDINAL_TO_NUM = {
     'الأول': '1', 'الاول': '1', 'أول': '1', 'اول': '1', 'الأولى': '1', 'الاولى': '1',
@@ -115,13 +110,6 @@ _SUBJECTS = {
     'علوم':      ['علوم'],
 }
 
-# كلمات لا تكون أسماء مدرسين
-_TEACHER_STOP = {
-    'ملزمة', 'مراجعة', 'وزاريات', 'واجبات', 'ملخص', 'أسئلة', 'كتاب',
-    'للصف', 'الصف', 'في', 'من', 'على', 'عن', 'مع', 'سنة', 'عام',
-    'الجزء', 'جزء', 'pdf', 'PDF', 'الجديد', 'الحديث', 'السنة',
-}
-
 def _extract_info_local(text: str) -> dict:
     """استخراج المعلومات بالأنماط دون الحاجة لـ Gemini."""
     result = {}
@@ -133,10 +121,13 @@ def _extract_info_local(text: str) -> dict:
         result['year'] = yr.group(1)
 
     # ── الصف: مستوى + نوع ────────────────────────────────────────────
+    # الرابع/الخامس/السادس: يجب وجود (علمي أو أدبي) وإلا يُترك الصف فارغاً
     _BRANCH_RE = r'(?:علمي|أدبي|ادبي)'
     high_grade_m = _re.search(
-        r'(?:السادس|الخامس|الرابع)\s+' + _BRANCH_RE, cleaned
+        r'(?:السادس|الخامس|الرابع)\s+' + _BRANCH_RE,
+        cleaned
     )
+    # الصفوف الأخرى: تقبل أي نوع أو بدون نوع
     other_grade_m = _re.search(
         r'(?:الثالث|الثاني|الأول|الاول|السابع|الثامن|التاسع|العاشر)'
         r'(?:\s+(?:علمي|أدبي|ادبي|إعدادي|اعدادي|أعدادي|الإعدادي|الاعدادي|الأعدادي'
@@ -147,8 +138,9 @@ def _extract_info_local(text: str) -> dict:
         result['grade'] = high_grade_m.group(0).strip()
     elif other_grade_m:
         result['grade'] = other_grade_m.group(0).strip()
+    # إذا الصف السادس/الخامس/الرابع موجود بدون تفرع → يُترك فارغاً ليملأه المشرف
 
-    # ── المدرس: بعد كلمة أستاذ/مدرس/دكتور ───────────────────────
+    # ── المدرس: بعد كلمة الأستاذ/المدرس/الدكتور ──────────────────
     teacher_m = _re.search(
         r'(?:الأستاذ|الاستاذ|أستاذ|استاذ|للأستاذ|للاستاذ|المدرس|للمدرس|الدكتور|للدكتور|أ\.|م\.)'
         r'\s*[:\-]?\s*'
@@ -156,45 +148,16 @@ def _extract_info_local(text: str) -> dict:
         cleaned
     )
     if teacher_m:
-        name = _re.sub(r'\s+', ' ', teacher_m.group(1)).strip()
-        words = [w for w in name.split() if w not in _TEACHER_STOP]
-        name = ' '.join(words[:4])
+        name = teacher_m.group(1).strip()
+        name = _re.sub(r'\s+', ' ', name).strip()
+        # حذف كلمات ليست أسماء (مثل: للصف، في، من)
+        stop = {'للصف', 'في', 'من', 'على', 'عن', 'مع', 'الصف', 'سنة', 'عام'}
+        words = [w for w in name.split() if w not in stop]
+        name = ' '.join(words[:4])   # أقصى 4 كلمات
         if len(name) > 3:
             result['teacher'] = name
 
-    # ── المادة: بحث في قائمة المعروفة ────────────────────────────
-    c_norm = _norm(cleaned)
-    for subj, keywords in _SUBJECTS.items():
-        for kw in keywords:
-            if _norm(kw) in c_norm:
-                result['subject'] = subj
-                break
-        if 'subject' in result:
-            break
-
-    # ── المدرس بدون بادئة: بين المادة والصف ─────────────────────
-    # النمط: [مادة] [اسم المدرس] [صف]  مثال: احياء ماهر نايف الخامس
-    if 'subject' in result and 'teacher' not in result:
-        for kw in _SUBJECTS.get(result['subject'], [result['subject']]):
-            pat = (
-                _re.escape(kw)
-                + r'\s+((?:[\u0600-\u06FF]{2,}\s+){1,3}[\u0600-\u06FF]{2,})\s+'
-                + _GRADE_ANCHOR
-            )
-            m2 = _re.search(pat, cleaned, _re.IGNORECASE)
-            if m2:
-                candidate = m2.group(1).strip()
-                words = [
-                    w for w in candidate.split()
-                    if w.lower() not in {s.lower() for s in _TEACHER_STOP}
-                    and len(w) > 1
-                    and not _re.match(r'^20\d{2}$', w)
-                ]
-                if 1 <= len(words) <= 4:
-                    result['teacher'] = ' '.join(words)
-                    break
-
-    # ── رقم الجزء ─────────────────────────────────────────────────
+    # ── رقم الجزء: بعد كلمة الجزء/جزء ──────────────────────────
     part_m = _re.search(
         r'(?:الجزء|جزء)\s+'
         r'(الأول|الاول|الأولى|الاولى|الثاني|الثانية|الثالث|الثالثة'
@@ -210,7 +173,17 @@ def _extract_info_local(text: str) -> dict:
         else:
             result['part'] = _ORDINAL_TO_NUM.get(raw, raw)
 
-    # ── نوع الملزمة ───────────────────────────────────────────────
+    # ── المادة: بحث في قائمة المعروفة ────────────────────────────
+    c_norm = _norm(cleaned)
+    for subj, keywords in _SUBJECTS.items():
+        for kw in keywords:
+            if _norm(kw) in c_norm:
+                result['subject'] = subj
+                break
+        if 'subject' in result:
+            break
+
+    # ── نوع الملزمة: بحث في كلمات مفتاحية ──────────────────────
     for typ, keywords in _TYPE_KEYWORDS.items():
         for kw in keywords:
             if _norm(kw) in c_norm:
@@ -221,18 +194,8 @@ def _extract_info_local(text: str) -> dict:
 
     return result
 
-def _validate_grade(val: str) -> bool:
-    """يتحقق أن الصف الرابع/الخامس/السادس يحتوي على علمي أو أدبي."""
-    is_high = _re.search(r'(?:السادس|الخامس|الرابع)', val)
-    has_branch = _re.search(r'(?:علمي|أدبي|ادبي)', val)
-    return not (is_high and not has_branch)
-
 async def extract_mlz_info(source_text: str) -> dict:
-    """
-    يستخرج معلومات الملزمة:
-    - Gemini هو المصدر الأساسي (أذكى وأشمل)
-    - الاستخراج المحلي يملأ ما فات Gemini
-    """
+    """يستخرج المعلومات محلياً أولاً، ثم يُحسّنها بـ Gemini إن توفّر مفتاحه."""
     local = _extract_info_local(source_text)
 
     if not get_all_gemini_keys():
@@ -240,49 +203,38 @@ async def extract_mlz_info(source_text: str) -> dict:
 
     cleaned_text = _clean_source_text(source_text)
     prompt = (
-        "أنت مساعد متخصص في استخراج معلومات الملازم الدراسية العراقية.\n\n"
-        "استخرج هذه الحقول من النص:\n"
-        "- subject: اسم المادة الدراسية فقط (مثال: أحياء، كيمياء، رياضيات، فيزياء، انجليزي)\n"
-        "- teacher: اسم المدرس — ابحث عن اسم شخص عربي حتى لو لم يسبقه كلمة أستاذ،\n"
-        "  عادةً يظهر بعد اسم المادة مباشرة قبل اسم الصف (مثال: ماهر نايف، علي حسين الربيعي).\n"
-        "  تجاهل أسماء القنوات والبوتات والمواقع.\n"
-        "- grade: الصف الدراسي — قاعدة صارمة: الرابع/الخامس/السادس يجب أن يُذكر معه\n"
-        "  (علمي أو أدبي) صراحةً وإلا اتركه فارغاً تماماً.\n"
-        "  أمثلة صحيحة: الخامس علمي، السادس أدبي، الرابع علمي.\n"
-        "  أمثلة خاطئة: الخامس (بدون علمي/أدبي) → اتركه فارغاً.\n"
-        "- year: سنة من 4 أرقام (2020-2030)\n"
-        "- part: رقم الجزء إن وجد، فارغ إن لم يُذكر\n"
-        "- mlz_type: (مراجعة، وزاريات، واجبات، ملخص، أسئلة، كتاب، ملزمة)\n\n"
+        "أنت مساعد يستخرج معلومات من نصوص عربية.\n\n"
+        "استخرج من النص:\n"
+        "- subject: اسم المادة الدراسية (أي مادة دراسية عراقية)\n"
+        "- teacher: الاسم الكامل لأي شخص مذكور (أستاذ أو مدرس)\n"
+        "- grade: الصف الدراسي — قاعدة مهمة: الصفوف الرابع والخامس والسادس يجب أن تحتوي صراحةً على كلمة (علمي أو أدبي)، مثل: الخامس علمي، السادس أدبي، الرابع علمي — إن لم يُذكر النوع (علمي/أدبي) بوضوح اترك الحقل فارغاً تماماً\n"
+        "- year: أي سنة من 4 أرقام (2020-2030)\n"
+        "- part: رقم الجزء إن وجد (مثال: 1 أو 2)، اتركه فارغاً إن لم يُذكر\n"
+        "- mlz_type: نوع المحتوى (مراجعة أو وزاريات أو واجبات أو ملخص أو أسئلة أو كتاب أو ملزمة)، اتركه فارغاً إن لم يُذكر\n\n"
         f"النص:\n{cleaned_text}\n\n"
-        "أرجع JSON فقط بدون أي نص آخر:\n"
+        "قاعدة: أرجع JSON فقط، اتركها فارغة إن لم تجد\n"
         '{"subject": "", "teacher": "", "grade": "", "year": "", "part": "", "mlz_type": ""}'
     )
-
-    gemini = {}
     try:
         raw = await _call_gemini_text(prompt)
         if raw:
-            m = _re.search(r'\{[^{}]*\}', raw, _re.DOTALL)
-            if m:
-                gemini = json.loads(m.group())
+            match = _re.search(r'\{[^{}]*\}', raw, _re.DOTALL)
+            if match:
+                gemini = json.loads(match.group())
+                for k in ('subject', 'teacher', 'grade', 'year', 'part', 'mlz_type'):
+                    val = gemini.get(k, '').strip()
+                    if not local.get(k) and val:
+                        # الصفوف الرابع/الخامس/السادس يجب أن تحتوي علمي أو أدبي
+                        if k == 'grade':
+                            is_high = _re.search(r'(?:السادس|الخامس|الرابع)', val)
+                            has_branch = _re.search(r'(?:علمي|أدبي|ادبي)', val)
+                            if is_high and not has_branch:
+                                continue  # رفض الصف الناقص
+                        local[k] = val
     except Exception as e:
-        logging.warning(f"[MLZ] Gemini error: {e}")
+        logging.warning(f"[MLZ] Gemini enhancement error: {e}")
 
-    # دمج النتائج: Gemini يسبق، المحلي يملأ الفراغات
-    final = {}
-    for k in ('subject', 'teacher', 'grade', 'year', 'part', 'mlz_type'):
-        g_val = (gemini.get(k) or '').strip()
-        l_val = (local.get(k) or '').strip()
-
-        if g_val:
-            if k == 'grade' and not _validate_grade(g_val):
-                final[k] = l_val  # رفض الصف الناقص من Gemini، جرب المحلي
-            else:
-                final[k] = g_val  # Gemini يسبق
-        else:
-            final[k] = l_val      # المحلي كاحتياطي
-
-    return {k: v for k, v in final.items() if v}
+    return local
 
 # ── تطبيع النص للمقارنة (مع حذف الرموز التعبيرية) ───────────────
 def _norm(text: str) -> str:
