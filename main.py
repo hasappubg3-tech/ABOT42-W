@@ -8,6 +8,21 @@ def main():
         logging.error("TELEGRAM_BOT_TOKEN غير موجود!"); return
     init_db()
     from telegram.ext import JobQueue
+    import httpx, asyncio
+
+    # حذف أي webhook قديم قبل بدء الـ polling
+    try:
+        asyncio.get_event_loop().run_until_complete(
+            httpx.AsyncClient().get(
+                f"https://api.telegram.org/bot{BOT_TOKEN}/deleteWebhook",
+                params={"drop_pending_updates": "true"},
+                timeout=10,
+            )
+        )
+        logging.info("تم حذف الـ webhook بنجاح.")
+    except Exception as e:
+        logging.warning(f"تعذّر حذف الـ webhook: {e}")
+
     app = Application.builder().token(BOT_TOKEN).post_init(post_init).job_queue(JobQueue()).build()
 
     media_filter = (filters.TEXT | filters.PHOTO | filters.Document.ALL |
@@ -23,25 +38,8 @@ def main():
     app.add_handler(CallbackQueryHandler(cb_manage))
     app.add_handler(MessageHandler(media_filter, on_message))
 
-    logging.info("البوت يعمل...")
-    # يدعم بيئة التطوير (REPLIT_DEV_DOMAIN) وبيئة الإنتاج (REPLIT_DOMAINS)
-    _webhook_domain = (
-        os.environ.get("REPLIT_DEV_DOMAIN", "").strip()
-        or os.environ.get("REPLIT_DOMAINS", "").split(",")[0].strip()
-    )
-    if _webhook_domain:
-        _wh_url = f"https://{_webhook_domain}/{BOT_TOKEN}"
-        logging.info(f"Webhook → {_wh_url[:60]}...")
-        app.run_webhook(
-            listen="0.0.0.0",
-            port=8080,
-            url_path=BOT_TOKEN,
-            webhook_url=_wh_url,
-            drop_pending_updates=True,
-            allowed_updates=Update.ALL_TYPES,
-        )
-    else:
-        app.run_polling(allowed_updates=Update.ALL_TYPES)
+    logging.info("البوت يعمل بنظام Long Polling...")
+    app.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
 
 if __name__ == "__main__":
     main()
