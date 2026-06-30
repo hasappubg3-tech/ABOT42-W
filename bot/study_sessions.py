@@ -424,8 +424,14 @@ def kb_ses_room(room, uid: int, is_in: bool) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(rows)
 
 def kb_ses_attendance(rid: int, sn: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("✋ أنا موجود!", callback_data=f"ses_present_{rid}_{sn}")],
+        [InlineKeyboardButton("🏠 الغرفة",    callback_data=f"ses_room_{rid}")],
+    ])
+
+def kb_ses_back_to_room(rid: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([[
-        InlineKeyboardButton("✋ أنا موجود!", callback_data=f"ses_present_{rid}_{sn}")
+        InlineKeyboardButton("🏠 الغرفة", callback_data=f"ses_room_{rid}")
     ]])
 
 def kb_ses_my_stats(uid: int) -> InlineKeyboardMarkup:
@@ -541,13 +547,16 @@ async def _ses_study_end_job(ctx):
         return
     phase_end = datetime.datetime.utcnow()
     ses_open_attendance(rid, sn, phase_end)
-    markup    = kb_ses_attendance(rid, sn)
-    for p in ses_get_participants(rid):
+    markup = kb_ses_attendance(rid, sn)
+    pts    = ses_get_participants(rid)
+    n      = len(pts)
+    for p in pts:
         try:
             await ctx.bot.send_message(
                 chat_id=p["user_id"],
                 text=(f"⏰ *انتهت جلسة الدراسة!*\n\n"
-                      f"🏠 {room['name']} | الجلسة *{sn}*\n\n"
+                      f"🏠 {room['name']} | الجلسة *{sn}*\n"
+                      f"👥 {n} مشاركين معك\n\n"
                       "⚡ اضغط *أنا موجود* خلال دقيقتين!"),
                 parse_mode="Markdown", reply_markup=markup)
         except Exception as e:
@@ -568,14 +577,18 @@ async def _ses_attend_close_job(ctx):
     ses_start_break(rid)
     room = _get_room_any(rid)
     brk  = room["break_time"]
-    for p in ses_get_participants(rid):
+    pts  = ses_get_participants(rid)
+    n    = len(pts)
+    for p in pts:
         try:
             await ctx.bot.send_message(
                 chat_id=p["user_id"],
                 text=(f"☕ *وقت الاستراحة!*\n\n"
-                      f"🏠 {room['name']} | ⏱ {brk} دقيقة\n\n"
+                      f"🏠 {room['name']} | ⏱ {brk} دقيقة\n"
+                      f"👥 {n} مشاركين معك\n\n"
                       "استرح قليلاً 💤"),
-                parse_mode="Markdown")
+                parse_mode="Markdown",
+                reply_markup=kb_ses_back_to_room(rid))
         except Exception as e:
             logger.warning(f"[SES] خطأ إرسال استراحة uid={p['user_id']}: {e}")
     ctx.job_queue.run_once(
@@ -593,14 +606,18 @@ async def _ses_break_end_job(ctx):
     sn    = ses_next_study_phase(rid)
     room  = _get_room_any(rid)
     study = room["study_time"]
-    for p in ses_get_participants(rid):
+    pts   = ses_get_participants(rid)
+    n     = len(pts)
+    for p in pts:
         try:
             await ctx.bot.send_message(
                 chat_id=p["user_id"],
                 text=(f"📚 *ابدأ الدراسة الآن!*\n\n"
                       f"🏠 {room['name']} | الجلسة *{sn}*\n"
-                      f"⏱ {study} دقيقة\n\nركّز وابدأ! 💪"),
-                parse_mode="Markdown")
+                      f"⏱ {study} دقيقة | 👥 {n} مشاركين\n\n"
+                      "ركّز وابدأ! 💪"),
+                parse_mode="Markdown",
+                reply_markup=kb_ses_back_to_room(rid))
         except Exception as e:
             logger.warning(f"[SES] خطأ إرسال بدء الدراسة uid={p['user_id']}: {e}")
     ctx.job_queue.run_once(
@@ -822,15 +839,19 @@ async def handle_ses_callback(q, ctx, uid: int, chat_id: int):
             await q.answer("⚠️ الجلسة بدأت بالفعل!", show_alert=True); return
         ses_start_room(rid)
         study = room["study_time"]
-        for p in ses_get_participants(rid):
+        pts_all = ses_get_participants(rid)
+        n       = len(pts_all)
+        for p in pts_all:
             if p["user_id"] != uid:
                 try:
                     await ctx.bot.send_message(
                         chat_id=p["user_id"],
                         text=(f"🚀 *بدأت الجلسة!*\n\n"
                               f"🏠 {room['name']} | الجلسة 1\n"
-                              f"⏱ {study} دقيقة\n\nركّز وابدأ! 💪"),
-                        parse_mode="Markdown")
+                              f"⏱ {study} دقيقة | 👥 {n} مشاركين\n\n"
+                              "ركّز وابدأ! 💪"),
+                        parse_mode="Markdown",
+                        reply_markup=kb_ses_back_to_room(rid))
                 except Exception: pass
         ctx.job_queue.run_once(
             _ses_study_end_job, when=datetime.timedelta(minutes=study),
@@ -859,7 +880,10 @@ async def handle_ses_callback(q, ctx, uid: int, chat_id: int):
                     await ctx.bot.send_message(
                         chat_id=p["user_id"],
                         text=f"🏁 *انتهت الغرفة*\n\n🏠 {room['name']}\n\nشكراً لمشاركتك! 🎓",
-                        parse_mode="Markdown")
+                        parse_mode="Markdown",
+                        reply_markup=InlineKeyboardMarkup([[
+                            InlineKeyboardButton("📊 إحصائيات الغرفة", callback_data=f"ses_room_stats_{rid}")
+                        ]]))
                 except Exception: pass
         await q.edit_message_text(
             "✅ *تم إنهاء الغرفة.*",
