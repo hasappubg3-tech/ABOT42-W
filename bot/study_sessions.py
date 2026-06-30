@@ -534,8 +534,10 @@ def kb_ses_edit_break_time(rid: int) -> InlineKeyboardMarkup:
 async def _ses_study_end_job(ctx):
     data      = ctx.job.data
     rid, sn   = data["rid"], data["sn"]
+    logger.info(f"[SES] مؤقت الدراسة انتهى: غرفة={rid} جلسة={sn}")
     room      = _get_room_any(rid)
     if not room or room["status"] != "studying" or room.get("current_session") != sn:
+        logger.info(f"[SES] تجاهل: status={room and room.get('status')} session={room and room.get('current_session')} sn={sn}")
         return
     phase_end = datetime.datetime.utcnow()
     ses_open_attendance(rid, sn, phase_end)
@@ -548,16 +550,21 @@ async def _ses_study_end_job(ctx):
                       f"🏠 {room['name']} | الجلسة *{sn}*\n\n"
                       "⚡ اضغط *أنا موجود* خلال دقيقتين!"),
                 parse_mode="Markdown", reply_markup=markup)
-        except Exception: pass
+        except Exception as e:
+            logger.warning(f"[SES] خطأ إرسال حضور uid={p['user_id']}: {e}")
     ctx.job_queue.run_once(
         _ses_attend_close_job, when=ATTENDANCE_WINDOW,
         data={"rid": rid, "sn": sn}, name=f"ses_attend_{rid}_{sn}")
+    logger.info(f"[SES] جُدول إغلاق الحضور بعد {ATTENDANCE_WINDOW}ث")
 
 async def _ses_attend_close_job(ctx):
     data    = ctx.job.data
     rid, sn = data["rid"], data["sn"]
+    logger.info(f"[SES] إغلاق الحضور: غرفة={rid} جلسة={sn}")
     room    = _get_room_any(rid)
-    if not room or room["status"] not in ("attendance", "studying"): return
+    if not room or room["status"] not in ("attendance", "studying"):
+        logger.info(f"[SES] تجاهل إغلاق الحضور: status={room and room.get('status')}")
+        return
     ses_start_break(rid)
     room = _get_room_any(rid)
     brk  = room["break_time"]
@@ -569,15 +576,20 @@ async def _ses_attend_close_job(ctx):
                       f"🏠 {room['name']} | ⏱ {brk} دقيقة\n\n"
                       "استرح قليلاً 💤"),
                 parse_mode="Markdown")
-        except Exception: pass
+        except Exception as e:
+            logger.warning(f"[SES] خطأ إرسال استراحة uid={p['user_id']}: {e}")
     ctx.job_queue.run_once(
         _ses_break_end_job, when=datetime.timedelta(minutes=brk),
         data={"rid": rid}, name=f"ses_break_{rid}_{sn}")
+    logger.info(f"[SES] جُدول نهاية الاستراحة بعد {brk}د")
 
 async def _ses_break_end_job(ctx):
     rid  = ctx.job.data["rid"]
+    logger.info(f"[SES] انتهت الاستراحة: غرفة={rid}")
     room = _get_room_any(rid)
-    if not room or room["status"] != "break": return
+    if not room or room["status"] != "break":
+        logger.info(f"[SES] تجاهل نهاية الاستراحة: status={room and room.get('status')}")
+        return
     sn    = ses_next_study_phase(rid)
     room  = _get_room_any(rid)
     study = room["study_time"]
@@ -589,16 +601,64 @@ async def _ses_break_end_job(ctx):
                       f"🏠 {room['name']} | الجلسة *{sn}*\n"
                       f"⏱ {study} دقيقة\n\nركّز وابدأ! 💪"),
                 parse_mode="Markdown")
-        except Exception: pass
+        except Exception as e:
+            logger.warning(f"[SES] خطأ إرسال بدء الدراسة uid={p['user_id']}: {e}")
     ctx.job_queue.run_once(
         _ses_study_end_job, when=datetime.timedelta(minutes=study),
         data={"rid": rid, "sn": sn}, name=f"ses_study_{rid}_{sn}")
+    logger.info(f"[SES] جُدول نهاية الدراسة جلسة={sn} بعد {study}د")
 
 def _cancel_room_jobs(jq, rid: int, sn: int):
     for name in [f"ses_study_{rid}_{sn}", f"ses_attend_{rid}_{sn}",
                  f"ses_break_{rid}_{sn}", f"ses_break_{rid}_{sn-1}"]:
         for job in jq.get_jobs_by_name(name):
             job.schedule_removal()
+
+def ses_recover_active_rooms(jq):
+    """يُعيد جدولة مؤقتات الغرف النشطة بعد إعادة تشغيل البوت."""
+    now = datetime.datetime.utcnow()
+    active = [_strip(r) for r in _col_r().find(
+        {"status": {"$in": ["studying", "attendance", "break"]}})]
+    if not active:
+        return
+    logger.info(f"[SES] استئناف {len(active)} غرفة نشطة...")
+    for room in active:
+        rid    = room["id"]
+        sn     = room.get("current_session", 1)
+        status = room["status"]
+        try:
+            if status == "studying":
+                phase_start = room.get("current_phase_start") or now
+                if isinstance(phase_start, str):
+                    phase_start = datetime.datetime.fromisoformat(phase_start)
+                study_end = phase_start + datetime.timedelta(minutes=room["study_time"])
+                remaining = max((study_end - now).total_seconds(), 2)
+                jq.run_once(_ses_study_end_job, when=remaining,
+                            data={"rid": rid, "sn": sn}, name=f"ses_study_{rid}_{sn}")
+                logger.info(f"[SES] غرفة={rid} دراسة | جلسة={sn} | متبقٍ={remaining:.0f}ث")
+
+            elif status == "attendance":
+                last_end = room.get("last_phase_end") or now
+                if isinstance(last_end, str):
+                    last_end = datetime.datetime.fromisoformat(last_end)
+                attend_end = last_end + datetime.timedelta(seconds=ATTENDANCE_WINDOW)
+                remaining = max((attend_end - now).total_seconds(), 2)
+                jq.run_once(_ses_attend_close_job, when=remaining,
+                            data={"rid": rid, "sn": sn}, name=f"ses_attend_{rid}_{sn}")
+                logger.info(f"[SES] غرفة={rid} حضور | متبقٍ={remaining:.0f}ث")
+
+            elif status == "break":
+                phase_start = room.get("current_phase_start") or now
+                if isinstance(phase_start, str):
+                    phase_start = datetime.datetime.fromisoformat(phase_start)
+                break_end = phase_start + datetime.timedelta(minutes=room["break_time"])
+                remaining = max((break_end - now).total_seconds(), 2)
+                jq.run_once(_ses_break_end_job, when=remaining,
+                            data={"rid": rid}, name=f"ses_break_{rid}_{sn}")
+                logger.info(f"[SES] غرفة={rid} استراحة | متبقٍ={remaining:.0f}ث")
+
+        except Exception as e:
+            logger.error(f"[SES] خطأ استئناف غرفة={rid}: {e}")
 
 # ══════════════════════════════════════════════════════════════════
 # معالج الـ Callbacks
@@ -775,6 +835,7 @@ async def handle_ses_callback(q, ctx, uid: int, chat_id: int):
         ctx.job_queue.run_once(
             _ses_study_end_job, when=datetime.timedelta(minutes=study),
             data={"rid": rid, "sn": 1}, name=f"ses_study_{rid}_1")
+        logger.info(f"[SES] جُدول نهاية الدراسة: غرفة={rid} جلسة=1 بعد {study}د")
         room = ses_get_room(rid); pts = ses_get_participants(rid)
         await q.edit_message_text("🚀 *بدأت الجلسة!*\n\n" + _room_info_text(room, pts),
                                   parse_mode="Markdown",

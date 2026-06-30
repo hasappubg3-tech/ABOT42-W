@@ -1,4 +1,5 @@
 from .shared import *
+from .study_sessions import ses_recover_active_rooms
 
 # ── إعداد البوت ──────────────────────────────────────────────────
 async def post_init(app):
@@ -15,3 +16,5 @@ async def post_init(app):
         logging.info("تم جدولة النسخ الاحتياطي التلقائي يومياً عند 03:00 UTC.")
     _setup_pomodoro_feature()
     logging.info("تم إعداد ميزة البومودورو.")
+    ses_recover_active_rooms(app.job_queue)
+    logging.info("تم التحقق من استئناف الجلسات النشطة.")
