@@ -271,8 +271,8 @@ async def on_message(update: Update, ctx):
 
     # ── وضع محادثة AI للسادس العلمي ──────────────────────────────
     if state == "ai_chat_mode":
-        # إذا ضغط زر رجوع أو القائمة الرئيسية → خروج من وضع AI
-        if text in (BTN_BACK, BTN_HOME) or (text in SPECIAL_BTNS and not m.photo):
+        # إذا ضغط أي زر من أزرار البوت → خروج من وضع AI تلقائياً
+        if not m.photo and is_bot_button_text(text, pid):
             ctx.user_data.pop("state", None)
             ctx.user_data.pop("ai_chat_bid", None)
             # معالجة طبيعية بعد الخروج
