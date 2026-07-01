@@ -2234,8 +2234,8 @@ async def on_message(update: Update, ctx):
             ctx.user_data["state"] = "ai_chat_mode"
             ctx.user_data["ai_chat_bid"] = b["id"]
             await m.reply_text(
-                "مرحباً، أقدر أحلّ أي سؤال من مناهج السادس العلمي.\n"
-                "أرسل سؤالك نصاً أو صورة.",
+                "هلا! 👋 أنا هنا أساعدك بكل مواد السادس العلمي.\n"
+                "اكتب سؤالك أو أرسل صورة وراح أجاوبك 🎓",
                 reply_markup=InlineKeyboardMarkup([[
                     InlineKeyboardButton("❌ إنهاء", callback_data="ai_chat_end"),
                 ]])
