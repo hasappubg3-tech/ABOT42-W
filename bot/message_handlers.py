@@ -1735,6 +1735,28 @@ async def on_message(update: Update, ctx):
             await m.reply_text("⚠️ أرسل نصاً للنوع."); return
         ctx.user_data['mlz_type'] = val
         ctx.user_data.pop("state", None)
+        if _is_mlz_summary(val):
+            ctx.user_data['state'] = 'wait_mlz_custom_line'
+            await m.reply_text(
+                "📝 أرسل *السطر الأول* للوصف يدوياً:\n_(مثال: ملخص الأحياء الجزء 1)_",
+                parse_mode='Markdown'
+            )
+        else:
+            ctx.user_data.pop('mlz_custom_line', None)
+            await _refresh_mlz_panel(ctx.bot, ctx)
+        return
+
+    # ── ملزمة: انتظار السطر الأول للملخص ────────────────────────
+    if state == "wait_mlz_custom_line":
+        val = m.text.strip() if m.text else ""
+        if not val:
+            await m.reply_text("⚠️ أرسل نصاً للسطر الأول."); return
+        ctx.user_data['mlz_custom_line'] = val
+        ctx.user_data.pop("state", None)
+        try:
+            await m.delete()
+        except Exception:
+            pass
         await _refresh_mlz_panel(ctx.bot, ctx)
         return
 

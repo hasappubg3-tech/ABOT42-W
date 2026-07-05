@@ -344,18 +344,31 @@ def _with_al(subject: str) -> str:
         return s
     return f"ال{s}"
 
-def _build_desc(subject, teacher, grade, year, part='', mlz_type='ملزمة'):
+def _is_mlz_summary(mlz_type: str) -> bool:
+    """يتحقق إذا كان نوع الملزمة من نوع ملخص."""
+    return _norm(mlz_type) in (_norm('ملخص'), _norm('ملخصات'))
+
+def _build_desc(subject, teacher, grade, year, part='', mlz_type='ملزمة', custom_line=None):
     part_str = f" الجزء {part}" if part else ""
     clean_grade = _strip_emoji(grade)
     clean_subject = _strip_emoji(subject).strip()
     subject_with_al = _with_al(clean_subject)
-    return (
-        f"⚜️ | {mlz_type} {subject_with_al}{part_str}\n"
-        f"⚜️ | للاستاذ {teacher}\n"
-        f"⚜️ | {clean_grade}\n"
-        f"⚜️ | سنة الاصدار : {year}\n"
-        f"⚜️ | دقة عالية قابلة للسحب"
-    )
+    is_summary = _is_mlz_summary(mlz_type)
+
+    if custom_line:
+        first_line = f"⚜️ | {custom_line.strip()}"
+    else:
+        first_line = f"⚜️ | {mlz_type} {subject_with_al}{part_str}"
+
+    lines = [
+        first_line,
+        f"⚜️ | للاستاذ {teacher}",
+        f"⚜️ | {clean_grade}",
+    ]
+    if year or not is_summary:
+        lines.append(f"⚜️ | سنة الاصدار : {year}")
+    lines.append("⚜️ | دقة عالية قابلة للسحب")
+    return "\n".join(lines)
 
 def _build_btn_name(mlz_type, year):
     return f"📌{mlz_type} {year}📌"
@@ -364,7 +377,7 @@ def _clear_mlz(ctx):
     for key in [
         'mlz_file_type', 'mlz_file_id', 'mlz_subject', 'mlz_teacher',
         'mlz_grade', 'mlz_year', 'mlz_part', 'mlz_type', 'mlz_desc', 'mlz_path_str',
-        'mlz_panel_mid', 'mlz_panel_chat_id', 'mlz_picker_mid',
+        'mlz_panel_mid', 'mlz_panel_chat_id', 'mlz_picker_mid', 'mlz_custom_line',
     ]:
         ctx.user_data.pop(key, None)
     ctx.user_data.pop('state', None)
@@ -478,6 +491,14 @@ async def show_type_picker(q, ctx):
     )
     ctx.user_data['mlz_picker_mid'] = msg.message_id
 
+async def _ask_custom_line(bot, chat_id):
+    """يطلب من المشرف كتابة السطر الأول يدوياً (للملخصات)."""
+    await bot.send_message(
+        chat_id=chat_id,
+        text="📝 أرسل *السطر الأول* للوصف يدوياً:\n_(مثال: ملخص الأحياء الجزء 1)_",
+        parse_mode='Markdown'
+    )
+
 async def after_mlz_type_pick(q, ctx, val: str):
     """يحفظ نوع الملزمة المختار."""
     if val == 'text':
@@ -488,9 +509,16 @@ async def after_mlz_type_pick(q, ctx, val: str):
     idx = int(val)
     chosen = MLZ_TYPES[idx] if idx < len(MLZ_TYPES) else 'ملزمة'
     ctx.user_data['mlz_type'] = chosen
-    await q.answer(f"✅ {chosen}")
-    await _delete_picker(ctx.bot, ctx, q.message.chat_id)
-    await _refresh_mlz_panel(ctx.bot, ctx)
+    if _is_mlz_summary(chosen):
+        ctx.user_data['state'] = 'wait_mlz_custom_line'
+        await q.answer(f"✅ {chosen}")
+        await _delete_picker(ctx.bot, ctx, q.message.chat_id)
+        await _ask_custom_line(ctx.bot, q.message.chat_id)
+    else:
+        ctx.user_data.pop('mlz_custom_line', None)
+        await q.answer(f"✅ {chosen}")
+        await _delete_picker(ctx.bot, ctx, q.message.chat_id)
+        await _refresh_mlz_panel(ctx.bot, ctx)
 
 # ── عرض لوحة اختيار رقم الجزء ───────────────────────────────────
 async def show_part_picker(q, ctx):
@@ -592,12 +620,17 @@ async def start_mlz_flow(m, ctx, uid, chat_id) -> bool:
 
 # ── callback: تأكيد → عرض محدد النوع ────────────────────────────
 async def after_mlz_confirm(q, ctx, uid, chat_id):
-    grade   = ctx.user_data.get('mlz_grade', '')
-    subject = ctx.user_data.get('mlz_subject', '')
-    teacher = ctx.user_data.get('mlz_teacher', '')
-    year    = ctx.user_data.get('mlz_year', '')
+    grade    = ctx.user_data.get('mlz_grade', '')
+    subject  = ctx.user_data.get('mlz_subject', '')
+    teacher  = ctx.user_data.get('mlz_teacher', '')
+    year     = ctx.user_data.get('mlz_year', '')
+    mlz_type = ctx.user_data.get('mlz_type') or 'ملزمة'
 
-    if not all([grade, subject, teacher, year]):
+    required = [grade, subject, teacher]
+    if not _is_mlz_summary(mlz_type):
+        required.append(year)
+
+    if not all(required):
         await q.answer("⚠️ يرجى ملء جميع الحقول أولاً.", show_alert=True)
         return
 
@@ -736,7 +769,8 @@ async def finish_mlz_flow(m, ctx, uid, chat_id, bot):
     year      = ctx.user_data.get('mlz_year', '')
     part      = ctx.user_data.get('mlz_part', '')
     mlz_type  = ctx.user_data.get('mlz_type') or 'ملزمة'
-    desc      = ctx.user_data.get('mlz_desc') or _build_desc(subject, teacher, grade, year, part, mlz_type)
+    custom_line = ctx.user_data.get('mlz_custom_line') or None
+    desc      = ctx.user_data.get('mlz_desc') or _build_desc(subject, teacher, grade, year, part, mlz_type, custom_line)
     file_type = ctx.user_data.get('mlz_file_type')
     file_id   = ctx.user_data.get('mlz_file_id')
 
