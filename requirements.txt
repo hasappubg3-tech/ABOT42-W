@@ -9,3 +9,13 @@ flask
 flask-sqlalchemy
 gunicorn
 psycopg2-binary
+dnspython
+email_validator
+flask
+flask-sqlalchemy
+gunicorn
+httpx~=0.25.2
+psycopg2-binary
+pymongo
+python-telegram-bot[job-queue,webhooks]==20.7
+requests

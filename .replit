@@ -45,3 +45,8 @@ args = "python main.py"
 [[ports]]
 localPort = 8080
 externalPort = 8080
+
+[userenv]
+
+[userenv.shared]
+SUPER_ADMIN_ID = "7305367169"
