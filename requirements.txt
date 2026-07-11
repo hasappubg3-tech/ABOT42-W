@@ -9,3 +9,14 @@ gunicorn
 email_validator
 flask-sqlalchemy
 psycopg2-binary
+dnspython
+email_validator
+flask
+flask-sqlalchemy
+google-generativeai
+gunicorn
+httpx~=0.25.2
+psycopg2-binary
+pymongo
+python-telegram-bot[job-queue,webhooks]==20.7
+requests

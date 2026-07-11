@@ -50,3 +50,9 @@ bot/
 ## User preferences
 
 - المستخدم يريد إجراء تعديلات بسيطة على البوت بعد إعداده.
+
+## حالة الإعداد على Replit
+
+- تم تثبيت جميع حزم Python (كانت مفقودة `httpx` وغيرها عن بيئة uv الجديدة بعد الاستيراد).
+- تم ضبط الأسرار (Secrets): `TELEGRAM_BOT_TOKEN`، `MONGODB_URI`، `GEMINI_API_KEY`. `SUPER_ADMIN_ID` كان مضبوطاً كمتغير بيئة عادي مسبقاً.
+- البوت يعمل الآن عبر workflow "Start application" بنظام Long Polling ومتصل بـ MongoDB وTelegram بنجاح.
