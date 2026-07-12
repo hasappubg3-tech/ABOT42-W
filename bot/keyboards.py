@@ -783,6 +783,8 @@ def kb_settings():
     cap_label    = "✏️ تغيير كليشة الكلام" if global_cap else "📌 كليشة الكلام"
     capbtn_label = f"🔗 كليشة الأزرار ({len(cap_btns)})" if cap_btns else "🔗 كليشة الأزرار"
     notif1_icon  = "✅" if (notif1_on and notif1_msg) else "⭕"
+    lib_url = get_library_channel_url()
+    lib_icon = "✅" if lib_url else "⭕"
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("👥 المشرفون",                      callback_data="st_admins"),
          InlineKeyboardButton("💾 النسخ الاحتياطي",               callback_data="st_backup_menu")],
@@ -796,7 +798,24 @@ def kb_settings():
          InlineKeyboardButton("💬 العبارات التحفيزية",              callback_data="st_phrases")],
         [InlineKeyboardButton("⭐ الأزرار المميزة",                 callback_data="st_specials"),
          InlineKeyboardButton("🤖 إعدادات AI",                    callback_data="st_ai_settings")],
+        [InlineKeyboardButton(f"📚 المكتبة {lib_icon}",            callback_data="st_library")],
     ])
+
+def kb_library_settings():
+    label = get_library_btn_label()
+    url = get_library_channel_url()
+    label_preview = label[:28] + "…" if len(label) > 28 else label
+    rows = [
+        [InlineKeyboardButton(f"✏️ اسم الزر: {label_preview}", callback_data="st_library_set_label")],
+        [InlineKeyboardButton(
+            f"🔗 رابط القناة: {'✅ محدد' if url else '❌ غير محدد'}",
+            callback_data="st_library_set_url"
+        )],
+    ]
+    if url:
+        rows.append([InlineKeyboardButton("🗑 حذف الرابط", callback_data="st_library_clear_url")])
+    rows.append([InlineKeyboardButton("رجوع", callback_data="st_back")])
+    return InlineKeyboardMarkup(rows)
 
 def kb_api_keys():
     all_keys = get_all_gemini_keys()

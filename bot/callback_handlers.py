@@ -1735,6 +1735,52 @@ async def cb_manage(update: Update, ctx):
         return
 
     # ── الأزرار المميزة ───────────────────────────────────────────────
+    # ── إعدادات المكتبة ───────────────────────────────────────────
+    if d == "st_library":
+        lib_url = get_library_channel_url()
+        lib_label = get_library_btn_label()
+        await q.edit_message_text(
+            "📚 *إعدادات المكتبة*\n\n"
+            f"اسم الزر الحالي: *{lib_label}*\n"
+            f"رابط القناة: {'`' + lib_url + '`' if lib_url else '❌ غير محدد'}\n\n"
+            "يظهر الزر تلقائياً في أسفل رسالة التقييم لكل زر محتوى اسمه يحتوي على:\n"
+            "_ملزمة، مراجعة، وزاريات، واجبات، نسخة_",
+            parse_mode="Markdown",
+            reply_markup=kb_library_settings()
+        )
+        return
+
+    if d == "st_library_set_label":
+        ctx.user_data["state"] = "wait_library_label"
+        current = get_library_btn_label()
+        await q.edit_message_text(
+            f"✏️ *اسم زر المكتبة*\n\nالحالي: *{current}*\n\nأرسل الاسم الجديد للزر:",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("إلغاء", callback_data="st_library")]])
+        )
+        return
+
+    if d == "st_library_set_url":
+        ctx.user_data["state"] = "wait_library_url"
+        url = get_library_channel_url()
+        await q.edit_message_text(
+            "🔗 *رابط قناة المكتبة*\n\n"
+            + (f"الحالي: `{url}`\n\n" if url else "لم يُحدد بعد.\n\n")
+            + "أرسل رابط القناة (يبدأ بـ https://):",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("إلغاء", callback_data="st_library")]])
+        )
+        return
+
+    if d == "st_library_clear_url":
+        set_setting("library_channel_url", "")
+        await q.edit_message_text(
+            "✅ تم حذف رابط القناة.\n\n📚 *إعدادات المكتبة*",
+            parse_mode="Markdown",
+            reply_markup=kb_library_settings()
+        )
+        return
+
     if d == "st_specials":
         sp_btns = get_all_special_btns()
         count = len(sp_btns)

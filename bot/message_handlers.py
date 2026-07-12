@@ -1213,6 +1213,32 @@ async def on_message(update: Update, ctx):
         return
 
     # ── انتظار نص عبارة تحفيزية جديدة ──────────────────────────────
+    # ── انتظار اسم زر المكتبة ────────────────────────────────────
+    if state == "wait_library_label":
+        if not m.text or m.text in SPECIAL_BTNS:
+            await m.reply_text("⚠️ أرسل نصاً صحيحاً لاسم الزر."); return
+        set_setting("library_btn_label", m.text.strip())
+        ctx.user_data.pop("state", None)
+        await set_panel(ctx, chat_id,
+            "📚 *إعدادات المكتبة*\n\n"
+            f"✅ تم حفظ اسم الزر: *{m.text.strip()}*",
+            kb_library_settings())
+        await m.reply_text("✅ تم حفظ اسم الزر.", reply_markup=build_kb(uid, pid))
+        return
+
+    # ── انتظار رابط قناة المكتبة ─────────────────────────────────
+    if state == "wait_library_url":
+        if not m.text or not (m.text.strip().startswith("http://") or m.text.strip().startswith("https://")):
+            await m.reply_text("⚠️ أرسل رابطاً صحيحاً يبدأ بـ https://"); return
+        set_setting("library_channel_url", m.text.strip())
+        ctx.user_data.pop("state", None)
+        await set_panel(ctx, chat_id,
+            "📚 *إعدادات المكتبة*\n\n"
+            "✅ تم حفظ رابط القناة.",
+            kb_library_settings())
+        await m.reply_text("✅ تم حفظ رابط القناة.", reply_markup=build_kb(uid, pid))
+        return
+
     if state == "wait_phrase_text":
         if not m.text or m.text in SPECIAL_BTNS:
             await m.reply_text("⚠️ أرسل نصاً للعبارة."); return

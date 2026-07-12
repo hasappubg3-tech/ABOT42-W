@@ -835,11 +835,30 @@ def btn_rating_text(bid: int, uid: int | None = None) -> str:
             user_line = f"\n✅ تقييمك: {user_rating}/5"
     return f"{rating_line}\n{count_line}{user_line}"
 
+_LIBRARY_KEYWORDS = ["ملزمة", "مراجعة", "وزاريات", "واجبات", "نسخة"]
+
+def get_library_btn_label() -> str:
+    return get_setting("library_btn_label", "⚜️شراء من مكتبة الامير⚜️")
+
+def get_library_channel_url() -> str:
+    return get_setting("library_channel_url", "")
+
+def _btn_has_library_keyword(bid: int) -> bool:
+    b = get_btn(bid)
+    if not b:
+        return False
+    label = b.get("label", "")
+    return any(kw in label for kw in _LIBRARY_KEYWORDS)
+
 def kb_btn_rating(bid: int):
-    return InlineKeyboardMarkup([[
+    rows = [[
         InlineKeyboardButton("⭐ قيّم المحتوى", callback_data=f"brate_open_{bid}"),
         InlineKeyboardButton("💬 التعليقات", callback_data=f"cmts_btn_{bid}"),
-    ]])
+    ]]
+    lib_url = get_library_channel_url()
+    if lib_url and _btn_has_library_keyword(bid):
+        rows.append([InlineKeyboardButton(get_library_btn_label(), url=lib_url)])
+    return InlineKeyboardMarkup(rows)
 
 def kb_btn_rating_choices(bid: int):
     return InlineKeyboardMarkup([
