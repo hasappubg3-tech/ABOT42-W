@@ -1566,33 +1566,89 @@ async def cb_manage(update: Update, ctx):
 
     if d == "st_api_keys":
         all_keys = get_all_gemini_keys()
-        db_keys_str = get_setting("gemini_keys_db", "")
-        db_keys = [k.strip() for k in db_keys_str.splitlines() if k.strip()] if db_keys_str else []
         env_count = len(GEMINI_KEYS)
-        db_count = len(db_keys)
-        status = "✅ متاحة" if all_keys else "❌ لا يوجد مفاتيح"
+        db_count = len(get_db_gemini_keys())
+        status = "✅ جاهزة" if all_keys else "❌ لا توجد مفاتيح"
         await q.edit_message_text(
             f"🔑 *مفاتيح Gemini API*\n\n"
-            f"🌐 مفاتيح البيئة (env): *{env_count}*\n"
+            f"🌐 مفاتيح البيئة: *{env_count}* — (قراءة فقط)\n"
             f"💾 مفاتيح قاعدة البيانات: *{db_count}*\n"
             f"📊 المجموع: *{len(all_keys)}* مفتاح — {status}\n\n"
-            "البوت يبدأ بالمفتاح الأول وينتقل للتالي تلقائياً.\n"
-            "كل مفتاح في سطر مستقل.",
+            "البوت يجرب المفاتيح بالترتيب وينتقل للتالي تلقائياً عند الحاجة.\n"
+            "🌐 = مفتاح بيئة (env) • 💾 = مفتاح قاعدة بيانات",
             parse_mode="Markdown",
             reply_markup=kb_api_keys()
         )
         return
 
-    if d == "st_api_keys_set":
-        ctx.user_data["state"] = "wait_api_keys"
-        db_keys_str = get_setting("gemini_keys_db", "")
-        current_hint = f"\n\n_المفاتيح الحالية في DB: {len([k for k in db_keys_str.splitlines() if k.strip()])} مفتاح_" if db_keys_str else ""
+    # ── عرض تفاصيل مفتاح بيئة ───────────────────────────────────
+    if d.startswith("st_api_key_env_"):
+        try:
+            idx = int(d[len("st_api_key_env_"):])
+            key = GEMINI_KEYS[idx]
+        except (ValueError, IndexError):
+            await q.answer("⚠️ المفتاح غير موجود.", show_alert=True); return
         await q.edit_message_text(
-            f"🔑 *إضافة / تعديل مفاتيح Gemini*{current_hint}\n\n"
-            "أرسل المفاتيح — كل مفتاح في سطر مستقل:\n\n"
-            "`AIzaSyXXXXXXXXXXXXXXXXXX`\n"
-            "`AIzaSyYYYYYYYYYYYYYYYYYY`\n\n"
-            "⚠️ سيحلّ هذا محلّ المفاتيح القديمة في قاعدة البيانات.",
+            f"🌐 *مفتاح البيئة #{idx + 1}*\n\n"
+            f"المفتاح: `{mask_gemini_key(key)}`\n\n"
+            "⚠️ مفاتيح البيئة لا يمكن حذفها من هنا.\n"
+            "يمكنك اختباره للتأكد من صلاحيته.",
+            parse_mode="Markdown",
+            reply_markup=kb_api_key_detail("env", idx)
+        )
+        return
+
+    # ── عرض تفاصيل مفتاح قاعدة البيانات ────────────────────────
+    if d.startswith("st_api_key_db_"):
+        try:
+            idx = int(d[len("st_api_key_db_"):])
+            db_keys = get_db_gemini_keys()
+            key = db_keys[idx]
+        except (ValueError, IndexError):
+            await q.answer("⚠️ المفتاح غير موجود.", show_alert=True); return
+        await q.edit_message_text(
+            f"💾 *مفتاح DB #{idx + 1}*\n\n"
+            f"المفتاح: `{mask_gemini_key(key)}`\n\n"
+            "يمكنك اختباره أو حذفه.",
+            parse_mode="Markdown",
+            reply_markup=kb_api_key_detail("db", idx)
+        )
+        return
+
+    # ── حذف مفتاح DB ────────────────────────────────────────────
+    if d.startswith("st_api_key_del_"):
+        try:
+            idx = int(d[len("st_api_key_del_"):])
+        except ValueError:
+            await q.answer("⚠️ خطأ.", show_alert=True); return
+        removed = remove_db_gemini_key(idx)
+        if not removed:
+            await q.answer("⚠️ المفتاح غير موجود أو تم حذفه مسبقاً.", show_alert=True)
+        all_keys = get_all_gemini_keys()
+        env_count = len(GEMINI_KEYS)
+        db_count = len(get_db_gemini_keys())
+        status = "✅ جاهزة" if all_keys else "❌ لا توجد مفاتيح"
+        await q.edit_message_text(
+            f"✅ تم حذف المفتاح.\n\n"
+            f"🔑 *مفاتيح Gemini API*\n\n"
+            f"🌐 مفاتيح البيئة: *{env_count}*\n"
+            f"💾 مفاتيح قاعدة البيانات: *{db_count}*\n"
+            f"📊 المجموع: *{len(all_keys)}* مفتاح — {status}\n\n"
+            "🌐 = مفتاح بيئة (env) • 💾 = مفتاح قاعدة بيانات",
+            parse_mode="Markdown",
+            reply_markup=kb_api_keys()
+        )
+        return
+
+    # ── إضافة مفتاح جديد ────────────────────────────────────────
+    if d == "st_api_key_add":
+        ctx.user_data["state"] = "wait_api_key_add"
+        await q.edit_message_text(
+            "🔑 *إضافة مفتاح Gemini جديد*\n\n"
+            "أرسل مفتاح API واحد:\n\n"
+            "`AIzaSyXXXXXXXXXXXXXXXXXX`\n\n"
+            "• سيتم تجاهل المفاتيح المكررة تلقائياً.\n"
+            "• المفتاح يجب أن يكون 20 حرفاً على الأقل.",
             parse_mode="Markdown",
             reply_markup=InlineKeyboardMarkup([[
                 InlineKeyboardButton("إلغاء", callback_data="st_api_keys")
@@ -1600,11 +1656,49 @@ async def cb_manage(update: Update, ctx):
         )
         return
 
-    if d == "st_api_keys_clear":
-        set_setting("gemini_keys_db", "")
+    # ── اختبار مفتاح (env أو db) ─────────────────────────────────
+    if d.startswith("st_api_key_test_"):
+        parts = d[len("st_api_key_test_"):].split("_")
+        if len(parts) < 2:
+            await q.answer("⚠️ خطأ في البيانات.", show_alert=True); return
+        source, idx_str = parts[0], parts[1]
+        try:
+            idx = int(idx_str)
+            if source == "env":
+                key = GEMINI_KEYS[idx]
+            else:
+                key = get_db_gemini_keys()[idx]
+        except (ValueError, IndexError):
+            await q.answer("⚠️ المفتاح غير موجود.", show_alert=True); return
+        await q.answer("⏳ جاري اختبار المفتاح…")
+        import httpx as _httpx
+        test_url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
+        test_payload = {"contents": [{"parts": [{"text": "hi"}]}]}
+        try:
+            async with _httpx.AsyncClient(timeout=15) as client:
+                resp = await client.post(test_url, params={"key": key}, json=test_payload)
+            if resp.status_code == 200:
+                result_icon = "✅"
+                result_text = "المفتاح يعمل بشكل صحيح."
+            elif resp.status_code == 429:
+                result_icon = "⚠️"
+                result_text = "المفتاح صحيح لكنه وصل حد الطلبات (Rate Limit)."
+            elif resp.status_code in (400, 403):
+                result_icon = "❌"
+                result_text = f"المفتاح غير صالح أو محظور. (كود: {resp.status_code})"
+            else:
+                result_icon = "❓"
+                result_text = f"استجابة غير متوقعة: HTTP {resp.status_code}"
+        except Exception as e:
+            result_icon = "❌"
+            result_text = f"فشل الاتصال: {type(e).__name__}"
+        source_icon = "🌐" if source == "env" else "💾"
         await q.edit_message_text(
-            "✅ تم حذف مفاتيح قاعدة البيانات.\n\nسيستخدم البوت مفاتيح البيئة فقط.",
-            reply_markup=kb_api_keys()
+            f"{result_icon} *نتيجة الاختبار*\n\n"
+            f"{source_icon} المفتاح: `{mask_gemini_key(key)}`\n\n"
+            f"{result_icon} {result_text}",
+            parse_mode="Markdown",
+            reply_markup=kb_api_key_detail(source, idx)
         )
         return
 

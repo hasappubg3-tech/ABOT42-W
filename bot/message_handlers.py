@@ -1160,22 +1160,38 @@ async def on_message(update: Update, ctx):
         return
 
     # ── انتظار مفاتيح Gemini API ──────────────────────────────────
-    if state == "wait_api_keys":
+    if state == "wait_api_key_add":
         if not m.text or m.text.strip() in SPECIAL_BTNS:
-            await m.reply_text("⚠️ أرسل نصاً صحيحاً يحتوي المفاتيح."); return
+            await m.reply_text("⚠️ أرسل مفتاح API صحيحاً."); return
+        key = m.text.strip()
         ctx.user_data.pop("state", None)
-        raw = m.text.strip()
-        keys = [k.strip() for k in raw.splitlines() if k.strip()]
-        if not keys:
-            await m.reply_text("⚠️ لم يُتعرَّف على أي مفتاح صالح."); return
-        set_setting("gemini_keys_db", "\n".join(keys))
-        await set_panel(ctx, chat_id, "⚙️ *الاعدادات*", kb_settings())
-        await m.reply_text(
-            f"✅ تم حفظ *{len(keys)}* مفتاح Gemini في قاعدة البيانات.\n"
-            "سيتم استخدامها تلقائياً مع مفاتيح البيئة.",
-            parse_mode="Markdown",
-            reply_markup=build_kb(uid, pid)
-        )
+        result = add_db_gemini_key(key)
+        if result == 'added':
+            all_keys = get_all_gemini_keys()
+            await set_panel(ctx, chat_id,
+                f"🔑 *مفاتيح Gemini API*\n\n"
+                f"✅ تم إضافة المفتاح: `{mask_gemini_key(key)}`\n\n"
+                f"📊 المجموع الآن: *{len(all_keys)}* مفتاح",
+                kb_api_keys())
+            await m.reply_text("✅ تم إضافة المفتاح.", reply_markup=build_kb(uid, pid))
+        elif result == 'dup_env':
+            await set_panel(ctx, chat_id,
+                "🔑 *مفاتيح Gemini API*\n\n"
+                "⚠️ هذا المفتاح موجود مسبقاً في مفاتيح البيئة، تم تجاهله.",
+                kb_api_keys())
+            await m.reply_text("⚠️ المفتاح مكرر (موجود في env).", reply_markup=build_kb(uid, pid))
+        elif result == 'dup_db':
+            await set_panel(ctx, chat_id,
+                "🔑 *مفاتيح Gemini API*\n\n"
+                "⚠️ هذا المفتاح مضاف مسبقاً في قاعدة البيانات، تم تجاهله.",
+                kb_api_keys())
+            await m.reply_text("⚠️ المفتاح مكرر (موجود في DB).", reply_markup=build_kb(uid, pid))
+        else:  # invalid
+            await m.reply_text(
+                "❌ المفتاح قصير جداً أو غير صالح (أقل من 20 حرفاً).\n"
+                "تأكد من نسخ المفتاح كاملاً.",
+                reply_markup=build_kb(uid, pid)
+            )
         return
 
     # ── انتظار ملف الاستعادة ─────────────────────────────────────

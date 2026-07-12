@@ -170,6 +170,43 @@ def get_all_gemini_keys():
             all_keys.append(k)
     return all_keys
 
+def get_db_gemini_keys() -> list:
+    """يُعيد قائمة مفاتيح Gemini المخزونة في قاعدة البيانات فقط."""
+    db_keys_str = get_setting("gemini_keys_db", "")
+    return [k.strip() for k in db_keys_str.splitlines() if k.strip()] if db_keys_str else []
+
+def mask_gemini_key(key: str) -> str:
+    """يُخفي معظم المفتاح: يُظهر أول 8 وآخر 4 أحرف."""
+    if len(key) <= 14:
+        return key
+    return f"{key[:8]}...{key[-4:]}"
+
+def add_db_gemini_key(key: str) -> str:
+    """
+    يُضيف مفتاحاً واحداً لقاعدة البيانات.
+    يُعيد: 'added' | 'dup_env' | 'dup_db' | 'invalid'
+    """
+    key = key.strip()
+    if len(key) < 20:
+        return 'invalid'
+    if key in GEMINI_KEYS:
+        return 'dup_env'
+    existing = get_db_gemini_keys()
+    if key in existing:
+        return 'dup_db'
+    existing.append(key)
+    set_setting("gemini_keys_db", "\n".join(existing))
+    return 'added'
+
+def remove_db_gemini_key(idx: int) -> bool:
+    """يحذف مفتاح DB بحسب الفهرس (0-based). يُعيد True إذا نجح الحذف."""
+    existing = get_db_gemini_keys()
+    if idx < 0 or idx >= len(existing):
+        return False
+    existing.pop(idx)
+    set_setting("gemini_keys_db", "\n".join(existing))
+    return True
+
 def get_storage_channel_id():
     ch = (STORAGE_CHANNEL_ID or "").strip()
     if not ch:

@@ -818,15 +818,34 @@ def kb_library_settings():
     return InlineKeyboardMarkup(rows)
 
 def kb_api_keys():
-    all_keys = get_all_gemini_keys()
-    db_keys_str = get_setting("gemini_keys_db", "")
-    db_count = len([k for k in db_keys_str.splitlines() if k.strip()]) if db_keys_str else 0
-    rows = [
-        [InlineKeyboardButton("➕ إضافة / تعديل مفاتيح Gemini", callback_data="st_api_keys_set")],
-    ]
-    if db_count > 0:
-        rows.append([InlineKeyboardButton(f"🗑 حذف مفاتيح قاعدة البيانات ({db_count})", callback_data="st_api_keys_clear")])
+    rows = []
+    # مفاتيح البيئة (للعرض فقط، لا يمكن حذفها)
+    for i, key in enumerate(GEMINI_KEYS):
+        rows.append([InlineKeyboardButton(
+            f"🌐 {mask_gemini_key(key)}",
+            callback_data=f"st_api_key_env_{i}"
+        )])
+    # مفاتيح قاعدة البيانات
+    db_keys = get_db_gemini_keys()
+    for i, key in enumerate(db_keys):
+        rows.append([InlineKeyboardButton(
+            f"💾 {mask_gemini_key(key)}",
+            callback_data=f"st_api_key_db_{i}"
+        )])
+    if not GEMINI_KEYS and not db_keys:
+        rows.append([InlineKeyboardButton("⚠️ لا توجد مفاتيح مضافة بعد", callback_data="noop")])
+    rows.append([InlineKeyboardButton("➕ إضافة مفتاح جديد", callback_data="st_api_key_add")])
     rows.append([InlineKeyboardButton("رجوع", callback_data="st_ai_settings")])
+    return InlineKeyboardMarkup(rows)
+
+def kb_api_key_detail(source: str, idx: int):
+    """لوحة تفاصيل مفتاح واحد. source = 'env' | 'db'"""
+    rows = [
+        [InlineKeyboardButton("🧪 اختبار المفتاح", callback_data=f"st_api_key_test_{source}_{idx}")],
+    ]
+    if source == "db":
+        rows.append([InlineKeyboardButton("🗑 حذف هذا المفتاح", callback_data=f"st_api_key_del_{idx}")])
+    rows.append([InlineKeyboardButton("🔙 رجوع للقائمة", callback_data="st_api_keys")])
     return InlineKeyboardMarkup(rows)
 
 def kb_ai_settings():
