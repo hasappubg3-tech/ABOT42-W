@@ -2040,6 +2040,30 @@ async def on_message(update: Update, ctx):
             await m.reply_text(".", reply_markup=build_kb(uid, None))
         return
 
+    # ── حماية الكويز: منع التنقل أثناء الاختبار (للمستخدمين فقط) ──
+    if not is_admin(uid) and not state:
+        _active_quiz_bid = None
+        for _k, _v in list(ctx.user_data.items()):
+            if _k.startswith("quiz_sess_") and isinstance(_v, dict) and not _v.get("finished"):
+                _active_quiz_bid = _v.get("bid")
+                break
+        if _active_quiz_bid is not None:
+            if ctx.user_data.get("quiz_interrupt_warning"):
+                ctx.user_data.pop("quiz_interrupt_warning", None)
+                _sess = get_quiz_session(ctx, _active_quiz_bid)
+                if _sess and not _sess.get("finished"):
+                    await finish_quiz_session(m, ctx, _active_quiz_bid, uid=uid)
+                return
+            else:
+                ctx.user_data["quiz_interrupt_warning"] = True
+                await m.reply_text(
+                    "⚠️ *أنت في منتصف اختبار!*\n\n"
+                    "لا يمكنك الانتقال لمكان آخر أثناء الاختبار.\n"
+                    "اضغط على أي زر مرة أخرى إذا أردت *إنهاء الاختبار* والخروج منه.",
+                    parse_mode="Markdown"
+                )
+                return
+
     # ── معاينة كمستخدم عادي (للمشرفين فقط) ─────────────────────────
     if text == BTN_PREVIEW and is_real_admin(uid):
         new_state = toggle_preview_mode(uid)

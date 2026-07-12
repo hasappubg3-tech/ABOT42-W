@@ -77,7 +77,8 @@ async def send_challenge_question_to_both(bot, ctx, challenge_id: str):
     session["current_answers"] = {}
     session["advancing"] = False
     prev_task = session.get("advance_task")
-    if prev_task and not prev_task.done():
+    current_task = _asyncio.current_task()
+    if prev_task and not prev_task.done() and prev_task is not current_task:
         prev_task.cancel()
     header = f"⚔️ *سؤال {idx + 1} / {total_q}*"
     for role in ("challenger", "challenged"):
@@ -155,9 +156,18 @@ async def _compute_and_advance(bot, ctx, challenge_id: str, delay: int = 3):
     try:
         answers = dict(session.get("current_answers", {}))
         sorted_ans = sorted(answers.items(), key=lambda x: x[1]["time"])
+        # أول من أجاب بأي إجابة (صحيحة أو خاطئة)
+        first_overall = sorted_ans[0][0] if sorted_ans else None
         correct_in_order = [uid for uid, a in sorted_ans if a["correct"]]
+        # 2 نقاط: أول من أجاب صحيحاً وكان أسبق الجميع (لم يسبقه أحد حتى بإجابة خاطئة)
+        # 1 نقطة: أجاب صحيحاً لكن سبقه أحد آخر (سواء بإجابة صحيحة أو خاطئة)
+        earned = {}
         for i, uid_key in enumerate(correct_in_order):
-            pts = 2 if i == 0 else 1
+            if i == 0 and uid_key == first_overall:
+                pts = 2
+            else:
+                pts = 1
+            earned[uid_key] = pts
             session["scores"][uid_key] = session["scores"].get(uid_key, 0) + pts
         names = {
             str(session[r]["uid"]): session[r]["name"]
@@ -170,7 +180,7 @@ async def _compute_and_advance(bot, ctx, challenge_id: str, delay: int = 3):
             if uid_key in correct_in_order:
                 rank = correct_in_order.index(uid_key)
                 medal = "🥇" if rank == 0 else "🥈"
-                pts_earned = 2 if rank == 0 else 1
+                pts_earned = earned.get(uid_key, 1)
                 result_lines.append(f"{medal} {name} — *+{pts_earned}* ✅")
             else:
                 result_lines.append(f"❌ {name} — *+0*")
