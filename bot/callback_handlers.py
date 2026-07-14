@@ -1517,11 +1517,20 @@ async def cb_manage(update: Update, ctx):
     if d == "st_emoji":
         aliases = get_all_emoji_aliases()
         count = len(aliases)
+        lines = [f"🎨 <b>رموز الإيموجي المتحركة</b> ({count})\n"]
+        for a in aliases:
+            eid = a.get("emoji_id", "")
+            fb  = a.get("fallback", "⭐")
+            try:
+                label = f"#{int(a['alias'])}"
+            except (ValueError, TypeError):
+                label = f":{a['alias']}:"
+            emoji_html = f'<tg-emoji emoji-id="{eid}">{fb}</tg-emoji>' if eid else fb
+            lines.append(f"{emoji_html}  {label}")
+        lines.append("\n" + "اضغط <b>إضافة إيموجي</b> لحفظ إيموجي مخصص.")
         await q.edit_message_text(
-            f"🎨 *رموز الإيموجي المتحركة* ({count})\n\n"
-            f"اضغط *إضافة إيموجي* لحفظ إيموجي مخصص وسيتم تخصيص رقم له تلقائياً.\n\n"
-            f"استخدم الرقم لاحقاً للإشارة إلى الإيموجي عند طلب التعديلات.",
-            parse_mode="Markdown",
+            "\n".join(lines),
+            parse_mode="HTML",
             reply_markup=kb_emoji_aliases()
         )
         return
@@ -1544,18 +1553,19 @@ async def cb_manage(update: Update, ctx):
         doc = get_emoji_alias(alias)
         if not doc:
             await q.answer("⚠️ الرمز غير موجود.", show_alert=True); return
-        fb = doc.get("fallback", "⭐")
+        fb  = doc.get("fallback", "⭐")
+        eid = doc.get("emoji_id", "")
         try:
-            num = int(alias)
-            alias_display = f"#{num}"
+            alias_display = f"#{int(alias)}"
         except (ValueError, TypeError):
             alias_display = f":{alias}:"
+        emoji_html = f'<tg-emoji emoji-id="{eid}">{fb}</tg-emoji>' if eid else fb
         await q.edit_message_text(
-            f"🎨 *تفاصيل الإيموجي*\n\n"
-            f"الرقم: `{alias_display}`\n"
-            f"الإيموجي: {fb}\n"
-            f"الـ ID: `{doc.get('emoji_id', '')}`",
-            parse_mode="Markdown",
+            f"🎨 <b>تفاصيل الإيموجي</b>\n\n"
+            f"الرقم: <code>{alias_display}</code>\n"
+            f"الإيموجي: {emoji_html}\n"
+            f"الـ ID: <code>{eid}</code>",
+            parse_mode="HTML",
             reply_markup=kb_emoji_alias_detail(alias)
         )
         return
@@ -1569,10 +1579,20 @@ async def cb_manage(update: Update, ctx):
         except Exception:
             pass
         aliases = get_all_emoji_aliases()
+        lines = [f"🗑 تم الحذف بنجاح.\n\n🎨 <b>رموز الإيموجي المتحركة</b> ({len(aliases)})\n"]
+        for a in aliases:
+            eid = a.get("emoji_id", "")
+            fb  = a.get("fallback", "⭐")
+            try:
+                label = f"#{int(a['alias'])}"
+            except (ValueError, TypeError):
+                label = f":{a['alias']}:"
+            emoji_html = f'<tg-emoji emoji-id="{eid}">{fb}</tg-emoji>' if eid else fb
+            lines.append(f"{emoji_html}  {label}")
+        lines.append("\n" + "اضغط <b>إضافة إيموجي</b> لحفظ إيموجي مخصص.")
         await q.edit_message_text(
-            f"🗑 تم حذف `:{alias}:` بنجاح.\n\n"
-            f"🎨 *رموز الإيموجي المتحركة* ({len(aliases)})",
-            parse_mode="Markdown",
+            "\n".join(lines),
+            parse_mode="HTML",
             reply_markup=kb_emoji_aliases()
         )
         return
