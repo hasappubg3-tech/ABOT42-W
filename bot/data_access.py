@@ -250,36 +250,42 @@ def _renumber(ids):
     for i, bid in enumerate(ids):
         _col("buttons").update_one({"id": bid}, {"$set": {"ord": i + 1}})
 
-def add_btn(pid, t, label, _sync=True):
+def add_btn(pid, t, label, label_emojis=None, _sync=True):
     ids = _siblings_ids(pid)
     ur = 1 if t == "content" else 0
     new_id = _next_id("buttons")
-    _col("buttons").insert_one({
+    doc = {
         "id": new_id, "parent_id": pid, "type": t, "label": label,
         "ord": len(ids) + 1, "new_row": 1, "click_count": 0,
         "unified_rating": ur, "no_caption": 0, "no_btn_caption": 0,
         "hidden": 0, "special_action": None, "compound_text": None,
         "random_quiz": 0, "random_exam": 0,
-    })
+    }
+    if label_emojis is not None:
+        doc["label_emojis"] = label_emojis
+    _col("buttons").insert_one(doc)
     if _sync:
         twin_pid = get_twin(pid)
         if twin_pid is not None:
-            twin_new_id = add_btn(twin_pid, t, label, _sync=False)
+            twin_new_id = add_btn(twin_pid, t, label, label_emojis=label_emojis, _sync=False)
             set_twin(new_id, twin_new_id)
     return new_id
 
-def add_btn_before(before_bid, pid, t, label, _sync=True):
+def add_btn_before(before_bid, pid, t, label, label_emojis=None, _sync=True):
     ids = _siblings_ids(pid)
     pos = ids.index(before_bid) if before_bid in ids else 0
     ur = 1 if t == "content" else 0
     new_id = _next_id("buttons")
-    _col("buttons").insert_one({
+    doc = {
         "id": new_id, "parent_id": pid, "type": t, "label": label,
         "ord": 0, "new_row": 1, "click_count": 0,
         "unified_rating": ur, "no_caption": 0, "no_btn_caption": 0,
         "hidden": 0, "special_action": None, "compound_text": None,
         "random_quiz": 0, "random_exam": 0,
-    })
+    }
+    if label_emojis is not None:
+        doc["label_emojis"] = label_emojis
+    _col("buttons").insert_one(doc)
     ids.insert(pos, new_id)
     _renumber(ids)
     if _sync:
@@ -287,13 +293,13 @@ def add_btn_before(before_bid, pid, t, label, _sync=True):
         if twin_pid is not None:
             twin_before = get_twin(before_bid)
             if twin_before is not None:
-                twin_new_id = add_btn_before(twin_before, twin_pid, t, label, _sync=False)
+                twin_new_id = add_btn_before(twin_before, twin_pid, t, label, label_emojis=label_emojis, _sync=False)
             else:
-                twin_new_id = add_btn(twin_pid, t, label, _sync=False)
+                twin_new_id = add_btn(twin_pid, t, label, label_emojis=label_emojis, _sync=False)
             set_twin(new_id, twin_new_id)
     return new_id
 
-def add_btn_after(after_bid, pid, t, label, new_row=1, _sync=True):
+def add_btn_after(after_bid, pid, t, label, label_emojis=None, new_row=1, _sync=True):
     ids = _siblings_ids(pid)
     if after_bid is None:
         pos = 0
@@ -301,13 +307,16 @@ def add_btn_after(after_bid, pid, t, label, new_row=1, _sync=True):
         pos = (ids.index(after_bid) + 1) if after_bid in ids else len(ids)
     ur = 1 if t == "content" else 0
     new_id = _next_id("buttons")
-    _col("buttons").insert_one({
+    doc = {
         "id": new_id, "parent_id": pid, "type": t, "label": label,
         "ord": 0, "new_row": new_row, "click_count": 0,
         "unified_rating": ur, "no_caption": 0, "no_btn_caption": 0,
         "hidden": 0, "special_action": None, "compound_text": None,
         "random_quiz": 0, "random_exam": 0,
-    })
+    }
+    if label_emojis is not None:
+        doc["label_emojis"] = label_emojis
+    _col("buttons").insert_one(doc)
     ids.insert(pos, new_id)
     _renumber(ids)
     if _sync:
@@ -315,18 +324,21 @@ def add_btn_after(after_bid, pid, t, label, new_row=1, _sync=True):
         if twin_pid is not None:
             twin_after = get_twin(after_bid) if after_bid is not None else None
             if after_bid is None or twin_after is not None:
-                twin_new_id = add_btn_after(twin_after, twin_pid, t, label, new_row=new_row, _sync=False)
+                twin_new_id = add_btn_after(twin_after, twin_pid, t, label, label_emojis=label_emojis, new_row=new_row, _sync=False)
             else:
-                twin_new_id = add_btn(twin_pid, t, label, _sync=False)
+                twin_new_id = add_btn(twin_pid, t, label, label_emojis=label_emojis, _sync=False)
             set_twin(new_id, twin_new_id)
     return new_id
 
-def upd_btn_label(bid, label, _sync=True):
-    _col("buttons").update_one({"id": bid}, {"$set": {"label": label}})
+def upd_btn_label(bid, label, label_emojis=None, _sync=True):
+    upd = {"label": label}
+    if label_emojis is not None:
+        upd["label_emojis"] = label_emojis
+    _col("buttons").update_one({"id": bid}, {"$set": upd})
     if _sync:
         twin = get_twin(bid)
         if twin is not None:
-            upd_btn_label(twin, label, _sync=False)
+            upd_btn_label(twin, label, label_emojis=label_emojis, _sync=False)
 
 def toggle_sort_by_year(bid, _sync=True):
     """يفعّل / يلغي خاصية الترتيب التلقائي حسب السنة للزر المدمج."""

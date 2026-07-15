@@ -162,9 +162,24 @@ def build_kb(uid, pid=None):
                 label = f"🟢{label}🟢"
             else:
                 label = f"🟡{label}🟡"
-        _eid = _kb_emoji_id(b['label'])
-        _btn_kw = {"api_kwargs": {"icon_custom_emoji_id": _eid}} if _eid else {}
-        _display_label = _strip_known_emojis(label) if _eid else label
+        _btn_le = b.get('label_emojis')  # None=قديم, {}=عادي, {char:id}=مخصص
+        if _btn_le is None:
+            # زر قديم بدون label_emojis → استخدم القاموس العام
+            _eid = _kb_emoji_id(b['label'])
+            _btn_kw = {"api_kwargs": {"icon_custom_emoji_id": _eid}} if _eid else {}
+            _display_label = _strip_known_emojis(label) if _eid else label
+        elif _btn_le:
+            # زر يحتوي إيموجيات مخصصة محددة → استخدمها فقط
+            _eid = next(iter(_btn_le.values()))
+            _btn_kw = {"api_kwargs": {"icon_custom_emoji_id": _eid}}
+            _display_label = label
+            for _ch in _btn_le:
+                _display_label = _display_label.replace(_ch, "")
+            _display_label = _display_label.strip()
+        else:
+            # زر يحتوي إيموجي عادي فقط → لا أيقونة مخصصة
+            _btn_kw = {}
+            _display_label = label
         current_row.append(KeyboardButton(_display_label + _encode_bid(b['id']), **_btn_kw))
         last_bid_in_row = b['id']
     if current_row:

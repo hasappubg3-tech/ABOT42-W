@@ -108,25 +108,37 @@ async def send_animated(
     bold           : bool  = False,
     reply_markup           = None,   # PTB ReplyKeyboardMarkup أو None
     disable_web_preview: bool = True,
+    emoji_map      : dict  = None,   # {fallback_char: emoji_id} خاص بالزر، None=عام
 ) -> bool:
     """
     يُرسل النص عبر Pyrogram مع entities للإيموجي المتحرك.
+    emoji_map=None  → يستخدم القاموس العام (سلوك قديم للأزرار بدون label_emojis)
+    emoji_map={}    → لا إيموجي مخصص (الاسم كُتب بإيموجي عادي)
+    emoji_map={c:id}→ يستخدم فقط الإيموجيات المحددة للزر
     يُرجع True عند النجاح، False للرجوع إلى PTB.
     """
     if not text:
         return False
 
     try:
-        from .data_access import get_all_emoji_aliases
-        all_aliases = get_all_emoji_aliases()
-        # فقط الإيموجيات المحفوظة تلقائياً (alias == fallback_char)
-        alias_map = {
-            a["alias"]: a
-            for a in all_aliases
-            if a["alias"]                             # لا نأخذ الفارغ أبداً
-            and a["alias"] == a.get("fallback", "")
-            and a["alias"] in text
-        }
+        if emoji_map is None:
+            # سلوك قديم: استخدم القاموس العام
+            from .data_access import get_all_emoji_aliases
+            all_aliases = get_all_emoji_aliases()
+            alias_map = {
+                a["alias"]: a
+                for a in all_aliases
+                if a["alias"]
+                and a["alias"] == a.get("fallback", "")
+                and a["alias"] in text
+            }
+        else:
+            # استخدم فقط إيموجيات هذا الزر تحديداً
+            alias_map = {
+                char: {"emoji_id": eid, "alias": char, "fallback": char}
+                for char, eid in emoji_map.items()
+                if char and char in text
+            }
         if not alias_map:
             return False   # لا إيموجي متحرك → PTB يكفي
 

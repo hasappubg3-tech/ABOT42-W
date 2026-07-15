@@ -319,6 +319,24 @@ async def _show_cloned_panel(ctx, chat_id, new_bid, cloned_label, cloned_type):
                         kb_menu_quick(new_bid))
 
 # ── معالج الرسائل الرئيسي ─────────────────────────────────────────
+def _extract_label_emojis(m) -> dict:
+    """يستخرج {fallback_char: emoji_id} من رسالة تحتوي custom emoji entities."""
+    result = {}
+    src = m.text or m.caption or ""
+    if not src:
+        return result
+    src_u16 = src.encode("utf-16-le")
+    for e in list(m.entities or []) + list(m.caption_entities or []):
+        if e.type != MessageEntity.CUSTOM_EMOJI or not e.custom_emoji_id:
+            continue
+        try:
+            fb = src_u16[e.offset * 2:(e.offset + e.length) * 2].decode("utf-16-le")
+        except Exception:
+            fb = ""
+        if fb:
+            result[fb] = e.custom_emoji_id
+    return result
+
 async def on_message(update: Update, ctx):
     m = update.message
     uid = update.effective_user.id
@@ -714,13 +732,14 @@ async def on_message(update: Update, ctx):
         add_new_row = ctx.user_data.get("add_new_row", 0)
         add_before  = ctx.user_data.get("add_before")
 
+        _le = _extract_label_emojis(m)
         t = ctx.user_data.get("new_type")
         if add_before is not None:
-            bid = add_btn_before(add_before, add_pid, t, text)
+            bid = add_btn_before(add_before, add_pid, t, text, label_emojis=_le)
         elif add_after != "END":
-            bid = add_btn_after(add_after, add_pid, t, text, new_row=add_new_row)
+            bid = add_btn_after(add_after, add_pid, t, text, label_emojis=_le, new_row=add_new_row)
         else:
-            bid = add_btn(add_pid, t, text)
+            bid = add_btn(add_pid, t, text, label_emojis=_le)
         ctx.user_data.pop("state", None); ctx.user_data.pop("new_type", None)
         ctx.user_data.pop("add_after", None); ctx.user_data.pop("add_pid", None)
         ctx.user_data.pop("add_new_row", None); ctx.user_data.pop("add_before", None)
@@ -1963,7 +1982,8 @@ async def on_message(update: Update, ctx):
     if state == "wait_edit_label":
         if not text or text in SPECIAL_BTNS:
             await m.reply_text("⚠️ أرسل نصاً صحيحاً."); return
-        bid = ctx.user_data.get("edit_bid"); upd_btn_label(bid, text)
+        _le = _extract_label_emojis(m)
+        bid = ctx.user_data.get("edit_bid"); upd_btn_label(bid, text, label_emojis=_le)
         b = get_btn(bid); ctx.user_data.pop("state", None)
         if b and b["type"] == "content":
             await set_panel(ctx, chat_id, f"📄 *{text}*", kb_content_panel(bid))
@@ -2283,11 +2303,12 @@ async def on_message(update: Update, ctx):
             b = get_btn(pid); new_pid = b["parent_id"] if b else None
             ctx.user_data["pid"] = new_pid
             # إرسال اسم القسم بإيموجي متحرك عبر Pyrogram إن أمكن
-            _nav_label = b['label'] if 'b' in dir() else '.'
+            _nav_label = b['label'] if b else '.'
+            _nav_em = b.get('label_emojis') if b else {}
             try:
                 from bot.pyro_sender import send_animated as _sa
                 _nav_kb = build_kb(uid, new_pid)
-                _nav_sent = await _sa(m.chat.id, _nav_label, reply_markup=_nav_kb)
+                _nav_sent = await _sa(m.chat.id, _nav_label, reply_markup=_nav_kb, emoji_map=_nav_em)
                 if not _nav_sent:
                     await m.reply_text('.', reply_markup=_nav_kb)
             except Exception:
@@ -2295,11 +2316,12 @@ async def on_message(update: Update, ctx):
         else:
             ctx.user_data["pid"] = None
             # إرسال اسم القسم بإيموجي متحرك عبر Pyrogram إن أمكن
-            _nav_label = b['label'] if 'b' in dir() else '.'
+            _nav_label = b['label'] if 'b' in dir() and b else '.'
+            _nav_em = b.get('label_emojis') if 'b' in dir() and b else {}
             try:
                 from bot.pyro_sender import send_animated as _sa
                 _nav_kb = build_kb(uid, None)
-                _nav_sent = await _sa(m.chat.id, _nav_label, reply_markup=_nav_kb)
+                _nav_sent = await _sa(m.chat.id, _nav_label, reply_markup=_nav_kb, emoji_map=_nav_em)
                 if not _nav_sent:
                     await m.reply_text('.', reply_markup=_nav_kb)
             except Exception:
@@ -2455,11 +2477,12 @@ async def on_message(update: Update, ctx):
         # النص لا يطابق أي زر في القائمة الحالية
         # → نعيد إظهار الكيبورد في حال كان مخفياً ونتجاهل النص
         # إرسال اسم القسم بإيموجي متحرك عبر Pyrogram إن أمكن
-        _nav_label = b['label'] if 'b' in dir() else '.'
+        _nav_label = b['label'] if 'b' in dir() and b else '.'
+        _nav_em = b.get('label_emojis') if 'b' in dir() and b else {}
         try:
             from bot.pyro_sender import send_animated as _sa
             _nav_kb = build_kb(uid, pid)
-            _nav_sent = await _sa(m.chat.id, _nav_label, reply_markup=_nav_kb)
+            _nav_sent = await _sa(m.chat.id, _nav_label, reply_markup=_nav_kb, emoji_map=_nav_em)
             if not _nav_sent:
                 await m.reply_text('.', reply_markup=_nav_kb)
         except Exception:
@@ -2477,11 +2500,10 @@ async def on_message(update: Update, ctx):
     if b["type"] == "menu":
         ctx.user_data["pid"] = b["id"]
         # إرسال اسم القسم بإيموجي متحرك عبر Pyrogram إن أمكن
-        _nav_label = b['label'] if 'b' in dir() else '.'
         try:
             from bot.pyro_sender import send_animated as _sa
             _nav_kb = build_kb(uid, b["id"])
-            _nav_sent = await _sa(m.chat.id, _nav_label, reply_markup=_nav_kb)
+            _nav_sent = await _sa(m.chat.id, b['label'], reply_markup=_nav_kb, emoji_map=b.get('label_emojis'))
             if not _nav_sent:
                 await m.reply_text('.', reply_markup=_nav_kb)
         except Exception:
@@ -2535,11 +2557,10 @@ async def on_message(update: Update, ctx):
         if is_admin(uid):
             ctx.user_data["pid"] = b["id"]
             # إرسال اسم القسم بإيموجي متحرك عبر Pyrogram إن أمكن
-            _nav_label = b['label'] if 'b' in dir() else '.'
             try:
                 from bot.pyro_sender import send_animated as _sa
                 _nav_kb = build_kb(uid, b["id"])
-                _nav_sent = await _sa(m.chat.id, _nav_label, reply_markup=_nav_kb)
+                _nav_sent = await _sa(m.chat.id, b['label'], reply_markup=_nav_kb, emoji_map=b.get('label_emojis'))
                 if not _nav_sent:
                     await m.reply_text('.', reply_markup=_nav_kb)
             except Exception:
@@ -2575,11 +2596,10 @@ async def on_message(update: Update, ctx):
         if action == "container":
             ctx.user_data["pid"] = b["id"]
             # إرسال اسم القسم بإيموجي متحرك عبر Pyrogram إن أمكن
-            _nav_label = b['label'] if 'b' in dir() else '.'
             try:
                 from bot.pyro_sender import send_animated as _sa
                 _nav_kb = build_kb(uid, b["id"])
-                _nav_sent = await _sa(m.chat.id, _nav_label, reply_markup=_nav_kb)
+                _nav_sent = await _sa(m.chat.id, b['label'], reply_markup=_nav_kb, emoji_map=b.get('label_emojis'))
                 if not _nav_sent:
                     await m.reply_text('.', reply_markup=_nav_kb)
             except Exception:
