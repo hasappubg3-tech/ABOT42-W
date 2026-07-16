@@ -734,6 +734,23 @@ async def on_message(update: Update, ctx):
 
         _le = _extract_label_emojis(m)
         t = ctx.user_data.get("new_type")
+
+        # ── ميزة التشابه: إيموجي تلقائي من الإخوة ──────────────────
+        if not _le:
+            from bot.data_access import get_emoji_similarity_enabled, get_sibling_emoji_hint
+            if get_emoji_similarity_enabled():
+                hint = get_sibling_emoji_hint(add_pid)
+                if hint:
+                    if hint.get("_regular"):
+                        # إيموجي عادي: أضفه للنص مباشرةً
+                        pre = hint.get("prefix", "")
+                        suf = hint.get("suffix", "")
+                        text = pre + text + suf
+                    else:
+                        # إيموجي مخصص: ضعه في label_emojis
+                        _le = hint
+        # ────────────────────────────────────────────────────────────
+
         if add_before is not None:
             bid = add_btn_before(add_before, add_pid, t, text, label_emojis=_le)
         elif add_after != "END":

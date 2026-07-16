@@ -879,7 +879,10 @@ def kb_work_mode():
 
 def kb_emoji_aliases():
     """لوحة إدارة رموز الإيموجي المتحركة."""
+    from .data_access import get_emoji_similarity_enabled
     aliases = get_all_emoji_aliases()
+    sim_on  = get_emoji_similarity_enabled()
+    sim_icon = "✅" if sim_on else "⭕"
     rows = []
     for a in aliases:
         alias = a['alias']
@@ -893,6 +896,7 @@ def kb_emoji_aliases():
     if not aliases:
         rows.append([InlineKeyboardButton("لا توجد إيموجيات مسجّلة بعد", callback_data="noop")])
     rows.append([InlineKeyboardButton("➕ إضافة إيموجي", callback_data="st_emoji_add")])
+    rows.append([InlineKeyboardButton(f"{sim_icon} التشابه", callback_data="st_emoji_similarity")])
     rows.append([InlineKeyboardButton("رجوع", callback_data="st_back")])
     return InlineKeyboardMarkup(rows)
 

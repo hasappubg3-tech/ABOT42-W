@@ -1629,6 +1629,32 @@ async def cb_manage(update: Update, ctx):
         )
         return
 
+    if d == "st_emoji_similarity":
+        from bot.data_access import get_emoji_similarity_enabled, set_emoji_similarity_enabled
+        current = get_emoji_similarity_enabled()
+        set_emoji_similarity_enabled(not current)
+        state_text = "🟢 مفعّلة" if not current else "🔴 معطّلة"
+        await q.answer(f"التشابه {state_text}", show_alert=False)
+        # إعادة عرض صفحة الإيموجي
+        aliases = get_all_emoji_aliases()
+        lines = [f"🎨 <b>رموز الإيموجي المتحركة</b> ({len(aliases)})\n"]
+        for a in aliases:
+            eid = a.get("emoji_id", "")
+            fb  = a.get("fallback", "⭐")
+            try:
+                label = f"#{int(a['alias'])}"
+            except (ValueError, TypeError):
+                label = f":{a['alias']}:"
+            emoji_html = f'<tg-emoji emoji-id="{eid}">{fb}</tg-emoji>' if eid else fb
+            lines.append(f"{emoji_html}  {label}")
+        lines.append("\n" + "اضغط <b>إضافة إيموجي</b> لحفظ إيموجي مخصص.")
+        await q.edit_message_text(
+            "\n".join(lines),
+            parse_mode="HTML",
+            reply_markup=kb_emoji_aliases()
+        )
+        return
+
     if d.startswith("st_emoji_del_"):
         alias = d[len("st_emoji_del_"):]
         delete_emoji_alias(alias)

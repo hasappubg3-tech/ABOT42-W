@@ -1400,6 +1400,66 @@ def get_next_emoji_num() -> int:
             pass
     return max(nums, default=0) + 1
 
+# ── ميزة التشابه ───────────────────────────────────────────────────
+def get_emoji_similarity_enabled() -> bool:
+    return get_setting("emoji_similarity", "1") == "1"
+
+def set_emoji_similarity_enabled(active: bool):
+    set_setting("emoji_similarity", "1" if active else "0")
+
+def _extract_leading_emoji(label: str) -> str:
+    """يستخرج الإيموجيات من بداية النص (قد تكون أكثر من حرف)."""
+    import re
+    EMOJI_RE = re.compile(
+        r"^([\U0001F000-\U0001FFFF\U00002600-\U000027BF\U0000FE00-\U0000FE0F"
+        r"\U0001F900-\U0001F9FF\U0001FA00-\U0001FAFF\U00002300-\U000023FF\u269c]+)"
+    )
+    m = EMOJI_RE.match(label)
+    return m.group(1) if m else ""
+
+def _extract_trailing_emoji(label: str) -> str:
+    """يستخرج الإيموجيات من نهاية النص."""
+    import re
+    EMOJI_RE = re.compile(
+        r"([\U0001F000-\U0001FFFF\U00002600-\U000027BF\U0000FE00-\U0000FE0F"
+        r"\U0001F900-\U0001F9FF\U0001FA00-\U0001FAFF\U00002300-\U000023FF\u269c]+)$"
+    )
+    m = EMOJI_RE.search(label)
+    return m.group(1) if m else ""
+
+def get_sibling_emoji_hint(pid) -> dict | None:
+    """
+    يفحص إخوة الزر الجديد (نفس parent_id).
+    - لو جميعهم يملكون نفس label_emojis المخصص → يُرجعه.
+    - لو جميعهم يحملون نفس إيموجي عادي (بداية/نهاية) → يُرجع
+      {'_regular': True, 'prefix': prefix, 'suffix': suffix}.
+    - غير ذلك → None.
+    """
+    siblings = list(_col("buttons").find(
+        {"parent_id": pid, "deleted": {"$ne": 1}},
+        {"label_emojis": 1, "label": 1}
+    ))
+    if not siblings:
+        return None
+
+    # ── فحص الإيموجي المخصص ────────────────────────────────────────
+    ref_le = siblings[0].get("label_emojis")
+    if ref_le and all(s.get("label_emojis") == ref_le for s in siblings):
+        return ref_le  # dict مثل {'🧪': '5855117481986755434'}
+
+    # ── فحص الإيموجي العادي ────────────────────────────────────────
+    if all(not s.get("label_emojis") for s in siblings):
+        ref_pre = _extract_leading_emoji(siblings[0]["label"])
+        ref_suf = _extract_trailing_emoji(siblings[0]["label"])
+        if (ref_pre or ref_suf) and all(
+            _extract_leading_emoji(s["label"]) == ref_pre and
+            _extract_trailing_emoji(s["label"]) == ref_suf
+            for s in siblings
+        ):
+            return {"_regular": True, "prefix": ref_pre, "suffix": ref_suf}
+
+    return None
+
 # ── وضع العمل (Work Mode) ────────────────────────────────────────
 def get_work_mode() -> bool:
     """يُرجع True إذا كان وضع العمل مفعّلاً."""
