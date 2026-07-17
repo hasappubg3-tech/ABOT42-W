@@ -45,7 +45,12 @@ def _strip_known_emojis(label: str) -> str:
 
 def _inline_btn(label: str, label_emojis, **kwargs) -> InlineKeyboardButton:
     """
-    ينشئ InlineKeyboardButton مع دعم الإيموجي المخصص تماماً كـ build_kb().
+    ينشئ InlineKeyboardButton مع دعم الإيموجي المخصص.
+    للأزرار الشفافة يختلف السلوك عن الأزرار الثابتة:
+    - نُبقي حرف الفالباك في النص + نُمرر icon_custom_emoji_id
+    - تيليغرام يُبدّل حرف الفالباك بالإيموجي المخصص تلقائياً
+    - إذا لم يدعم التطبيق الميزة يبقى الفالباك العادي (لا يسوء الوضع)
+
     label_emojis: None=قديم (استخدم القاموس العام), {}=عادي, {char:id}=مخصص.
     kwargs: تُمرَّر مباشرةً لـ InlineKeyboardButton (callback_data, url …).
     """
@@ -56,20 +61,17 @@ def _inline_btn(label: str, label_emojis, **kwargs) -> InlineKeyboardButton:
         # زر قديم بدون label_emojis → استخدم القاموس العام
         _eid = _kb_emoji_id(label)
         if _eid:
-            display = _strip_known_emojis(label)
-            return InlineKeyboardButton(display, api_kwargs={"icon_custom_emoji_id": _eid}, **kwargs)
+            # أبقِ الفالباك في النص حتى يُبدّله تيليغرام بالمخصص
+            return InlineKeyboardButton(label, api_kwargs={"icon_custom_emoji_id": _eid}, **kwargs)
         return InlineKeyboardButton(label, **kwargs)
 
     if label_emojis:
-        # إيموجيات مخصصة محددة لهذا الزر تحديداً
+        # إيموجيات مخصصة محددة لهذا الزر
         _eid = next(iter(label_emojis.values()))
-        display = label
-        for _ch in label_emojis:
-            display = display.replace(_ch, "")
-        display = display.strip()
-        return InlineKeyboardButton(display, api_kwargs={"icon_custom_emoji_id": _eid}, **kwargs)
+        # أبقِ الفالباك في النص + مرر الـ id
+        return InlineKeyboardButton(label, api_kwargs={"icon_custom_emoji_id": _eid}, **kwargs)
 
-    # label_emojis == {} → إيموجي عادي فقط، لا أيقونة مخصصة
+    # label_emojis == {} → إيموجي عادي فقط
     return InlineKeyboardButton(label, **kwargs)
 
 # ── ترتيب تلقائي حسب السنة والنوع للأزرار المدمجة ──────────────────
