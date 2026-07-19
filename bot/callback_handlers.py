@@ -1416,6 +1416,21 @@ async def cb_manage(update: Update, ctx):
         await send_items(q.message, child_bid, uid=uid, bot=ctx.bot)
         return
 
+    # ── حاسبة القبول الجامعي: اختيار الفرع ──────────────────────────
+    if d.startswith("qab_branch_") and not is_admin(uid):
+        await q.answer()
+        branch = d[len("qab_branch_"):]
+        if branch not in ("علمي", "أدبي"):
+            return
+        ctx.user_data["qab_branch"] = branch
+        ctx.user_data["state"] = "wait_qab_grade"
+        await q.message.reply_text(
+            f"✅ الفرع: *{branch}*\n\n"
+            "أرسل معدلك (مثال: 87.50):",
+            parse_mode="Markdown"
+        )
+        return
+
     # ── فلتر الملازم (للمستخدم العادي) ─────────────────────────────
     if d.startswith("mlzf_") and not is_admin(uid):
         await q.answer()

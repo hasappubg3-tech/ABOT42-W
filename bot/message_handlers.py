@@ -553,6 +553,29 @@ async def on_message(update: Update, ctx):
                 await m.reply_text("⚠️ تعذر تحويل طلبك حالياً. حاول مرة أخرى لاحقاً.")
             return
 
+    # ── حاسبة القبول الجامعي: انتظار إدخال المعدل ────────────────────
+    if state == "wait_qab_grade":
+        branch = ctx.user_data.pop("qab_branch", None)
+        ctx.user_data.pop("state", None)
+        state = None
+        try:
+            grade = float(text.strip().replace(",", "."))
+            if not (0 <= grade <= 105):
+                raise ValueError("out of range")
+        except (ValueError, AttributeError):
+            # إدخال غير صحيح → أعِد السؤال
+            ctx.user_data["state"] = "wait_qab_grade"
+            if branch:
+                ctx.user_data["qab_branch"] = branch
+            await m.reply_text("⚠️ أرسل معدلاً صحيحاً بين 0 و105 (مثال: 87.50)")
+            return
+        from bot.qaboolat_feature import search_results, format_results
+        results = search_results(branch or "علمي", grade)
+        messages = format_results(branch or "علمي", grade, results)
+        for msg in messages:
+            await m.reply_text(msg, parse_mode="Markdown")
+        return
+
     # ── المستخدم في محادثة نشطة مع المشرف ────────────────────────────
     if not is_file_supervisor(uid) and not state and is_file_convo_active(uid):
         if is_bot_button_text(text, pid):
@@ -2543,6 +2566,12 @@ async def on_message(update: Update, ctx):
         return
 
     b = matched
+
+    # ── زر حاسبة القبول الجامعي ───────────────────────────────────
+    if not is_admin(uid) and b["id"] == 9670:
+        from bot.qaboolat_feature import handle_qaboolat_trigger
+        await handle_qaboolat_trigger(m, ctx, uid)
+        return
 
     # ── فحص وضع الصيانة (للمستخدم فقط) ──────────────────────────
     if not is_admin(uid) and (b.get("maintenance", 0) or 0):
