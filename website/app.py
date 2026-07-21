@@ -3,6 +3,7 @@
 Flask app — يعمل في process منفصل بجانب البوت
 """
 import os
+import re
 import time
 import logging
 import requests as _req
@@ -11,6 +12,30 @@ from flask import Flask, render_template, jsonify, request, redirect, abort, url
 BOT_TOKEN    = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 BOT_USERNAME = os.environ.get("BOT_USERNAME", "Mdry7bot")
 SITE_NAME    = "شبكة الامير التعليمية"
+
+# ── إزالة الإيموجيات ────────────────────────────────────────────────
+_EMOJI_RE = re.compile(
+    "[\U0001F600-\U0001F64F"
+    "\U0001F300-\U0001F5FF"
+    "\U0001F680-\U0001F6FF"
+    "\U0001F700-\U0001F77F"
+    "\U0001F780-\U0001F7FF"
+    "\U0001F800-\U0001F8FF"
+    "\U0001F900-\U0001F9FF"
+    "\U0001FA00-\U0001FA6F"
+    "\U0001FA70-\U0001FAFF"
+    "\U00002702-\U000027B0"
+    "\U0000FE0F\U0000200D"
+    "\U00002640-\U00002642"
+    "\U00002600-\U00002B55"
+    "]+",
+    flags=re.UNICODE,
+)
+
+def strip_emoji(text) -> str:
+    if not text:
+        return ""
+    return _EMOJI_RE.sub("", str(text)).strip()
 NEW_DAYS     = 14   # عدد الأيام لاعتبار الملزمة "جديدة"
 
 # ── Cache بسيط (file_id / bid -> (url|None, timestamp)) ──────────
@@ -168,6 +193,7 @@ def _latest_notes(limit: int = 8) -> list:
 def create_app() -> Flask:
     app = Flask(__name__, template_folder="templates", static_folder="static")
     app.secret_key = os.environ.get("SESSION_SECRET", "alameer-secret")
+    app.jinja_env.filters["strip_emoji"] = strip_emoji
 
     # ── الصفحة الرئيسية ──────────────────────────────────────────────
     @app.route("/")
@@ -203,9 +229,9 @@ def create_app() -> Flask:
             breadcrumb=breadcrumb,
             bot_username=BOT_USERNAME,
             site_name=SITE_NAME,
-            title=f"{btn.get('label','')} — {SITE_NAME}",
-            og_title=f"{btn.get('label','')} — {SITE_NAME}",
-            og_description=f"تصفح ملازم وكتب {btn.get('label','')}",
+            title=f"{strip_emoji(btn.get('label',''))} — {SITE_NAME}",
+            og_title=f"{strip_emoji(btn.get('label',''))} — {SITE_NAME}",
+            og_description=f"تصفح ملازم وكتب {strip_emoji(btn.get('label',''))}",
             og_url=f"/cat/{bid}",
             og_image="",
         )
@@ -251,9 +277,9 @@ def create_app() -> Flask:
             bot_deep_link=bot_deep_link,
             bot_username=BOT_USERNAME,
             site_name=SITE_NAME,
-            title=f"{btn.get('label','')} | {SITE_NAME}",
-            og_title=f"{btn.get('label','')} — {SITE_NAME}",
-            og_description=preview_text[:160] if preview_text else f"ملزمة {btn.get('label','')}",
+            title=f"{strip_emoji(btn.get('label',''))} | {SITE_NAME}",
+            og_title=f"{strip_emoji(btn.get('label',''))} — {SITE_NAME}",
+            og_description=preview_text[:160] if preview_text else f"ملزمة {strip_emoji(btn.get('label',''))}",
             og_url=f"/note/{bid}",
             og_image=thumb or "",
         )

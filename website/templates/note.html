@@ -26,18 +26,18 @@
     <!-- غلاف الملزمة -->
     <div class="note-cover">
       {% if thumb %}
-        <img src="{{ thumb }}" alt="{{ btn.label }}" class="cover-img">
+        <img src="/thumb/{{ btn.id }}" alt="{{ btn.label | strip_emoji }}" class="cover-img">
       {% else %}
         <div class="cover-placeholder">
-          <span class="cover-letter">{{ btn.label[0] if btn.label else '📄' }}</span>
-          <span class="cover-label">{{ btn.label }}</span>
+          <span class="cover-letter">{{ (btn.label | strip_emoji or '📄')[0] }}</span>
+          <span class="cover-label">{{ btn.label | strip_emoji }}</span>
         </div>
       {% endif %}
     </div>
 
     <!-- معلومات الملزمة -->
     <div class="note-detail-info">
-      <h1 class="detail-title">{{ btn.label }}</h1>
+      <h1 class="detail-title">{{ btn.label | strip_emoji }}</h1>
 
       <!-- تقييم -->
       {% if rating.count > 0 %}
@@ -95,7 +95,7 @@
           </svg>
           تحميل من البوت
         </a>
-        <button class="btn btn--outline" onclick="shareThis('{{ btn.id }}', '{{ btn.label|replace("'", "\\'") }}')">
+        <button class="btn btn--outline" onclick="shareThis('{{ btn.id }}', '{{ btn.label | strip_emoji | replace("'", "\\'") }}')">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
             <circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/>
             <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/>
@@ -133,7 +133,7 @@
     <div class="preview-gallery">
       {% for p in photos[:9] %}
       <div class="gallery-item" onclick="openLightbox('{{ p.file_id }}', {{ loop.index0 }})">
-        <img src="/file/{{ p.file_id }}" alt="صفحة {{ loop.index }} — {{ btn.label }}" loading="lazy">
+        <img src="/file/{{ p.file_id }}" alt="صفحة {{ loop.index }} — {{ btn.label | strip_emoji }}" loading="lazy">
         <div class="gallery-overlay"><span>🔍</span></div>
       </div>
       {% endfor %}
