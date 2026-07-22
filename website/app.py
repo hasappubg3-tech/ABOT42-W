@@ -12,6 +12,7 @@ from flask import Flask, render_template, jsonify, request, redirect, abort, url
 BOT_TOKEN    = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 BOT_USERNAME = os.environ.get("BOT_USERNAME", "Mdry7bot")
 SITE_NAME    = "شبكة الامير التعليمية"
+SITE_URL     = os.environ.get("SITE_URL", "").rstrip("/")
 
 # ── إزالة الإيموجيات ────────────────────────────────────────────────
 _EMOJI_RE = re.compile(
@@ -458,6 +459,62 @@ def create_app() -> Flask:
         except Exception as e:
             logging.debug(f"[file_proxy] fallback redirect: {e}")
         return redirect(url)
+
+    # ── robots.txt ───────────────────────────────────────────────────
+    @app.route("/robots.txt")
+    def robots():
+        base = SITE_URL or request.host_url.rstrip("/")
+        content = (
+            "User-agent: *\n"
+            "Allow: /\n"
+            "Disallow: /api/\n"
+            "Disallow: /file/\n"
+            "Disallow: /thumb/\n"
+            f"Sitemap: {base}/sitemap.xml\n"
+        )
+        return Response(content, mimetype="text/plain")
+
+    # ── sitemap.xml ──────────────────────────────────────────────────
+    @app.route("/sitemap.xml")
+    def sitemap():
+        base = SITE_URL or request.host_url.rstrip("/")
+        urls = [{"loc": base, "priority": "1.0", "changefreq": "daily"}]
+
+        # كل الفئات
+        cats = list(_col("buttons").find({
+            "deleted": {"$ne": 1}, "hidden": {"$ne": 1},
+            "type": {"$ne": "content"}
+        }, {"id": 1, "updated_at": 1}))
+        for c in cats:
+            urls.append({
+                "loc": f"{base}/cat/{c['id']}",
+                "priority": "0.8",
+                "changefreq": "weekly",
+            })
+
+        # كل الملازم
+        notes = list(_col("buttons").find({
+            "deleted": {"$ne": 1}, "hidden": {"$ne": 1},
+            "type": "content"
+        }, {"id": 1, "created_at": 1}))
+        for n in notes:
+            urls.append({
+                "loc": f"{base}/note/{n['id']}",
+                "priority": "0.9",
+                "changefreq": "monthly",
+            })
+
+        lines = ['<?xml version="1.0" encoding="UTF-8"?>',
+                 '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">']
+        for u in urls:
+            lines.append("  <url>")
+            lines.append(f"    <loc>{u['loc']}</loc>")
+            lines.append(f"    <changefreq>{u['changefreq']}</changefreq>")
+            lines.append(f"    <priority>{u['priority']}</priority>")
+            lines.append("  </url>")
+        lines.append("</urlset>")
+
+        return Response("\n".join(lines), mimetype="application/xml")
 
     # ── صفحة 404 ─────────────────────────────────────────────────────
     @app.errorhandler(404)
