@@ -56,6 +56,21 @@ body {
   transition: background var(--transition), color var(--transition);
 }
 
+/* خلفية رخامية مائلة */
+body::before {
+  content: '';
+  position: fixed;
+  top: -30%;
+  left: -30%;
+  width: 160%;
+  height: 160%;
+  background: url('/static/img/marble-bg.svg') center / cover;
+  transform: rotate(25deg);
+  pointer-events: none;
+  z-index: 0;
+}
+[data-theme="dark"] body::before { opacity: 0.15; }
+
 body > * { position: relative; z-index: 1; }
 
 a { color: inherit; text-decoration: none; }
